@@ -218,6 +218,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip all interactive prompts.",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Clean up target repo: discard changes, switch to default branch, delete recipro/* branches.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s 0.1.0",
@@ -272,6 +277,31 @@ def main() -> int:
     if not prefs:
         print("No preferences found. Run without --no-select first, or use --reconfigure.")
         return 1
+
+    # -- Clean command --
+    if args.clean:
+        from .core.git_tools import GitRepo
+        from .config import AppConfig
+        repo_path = Path(prefs["repo_path"]).expanduser().resolve()
+        config = AppConfig(
+            repo_path=repo_path, focus=None, max_improvements=1,
+            planner_model=None, critic_backend="claude", critic_model=None,
+            builder_backend="claude", builder_model=None,
+        )
+        git = GitRepo(config)
+        git.assert_repo_exists()
+        print(f"Cleaning target repo: {repo_path}")
+        result = git.clean_worktree()
+        if result["discarded"]:
+            print(f"  Discarded {len(result['discarded'])} dirty file(s)")
+        if result["switched_to"]:
+            print(f"  Switched: {result['switched_to'][0]}")
+        if result["deleted_branches"]:
+            for b in result["deleted_branches"]:
+                print(f"  Deleted branch: {b}")
+        if not any(result.values()):
+            print("  Already clean, nothing to do.")
+        return 0
 
     # Ask for focus every run (unless --no-select)
     focus: str | None = None

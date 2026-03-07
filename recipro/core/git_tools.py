@@ -132,6 +132,45 @@ class GitRepo:
         result = run_command(command, cwd=self.repo_path, check=True)
         return result.stdout.strip().splitlines()[-1].strip()
 
+    def default_branch(self) -> str:
+        """Detect the default branch (main or master)."""
+        for name in ("main", "master"):
+            if self.branch_exists(name):
+                return name
+        return "main"
+
+    def clean_worktree(self) -> dict[str, list[str]]:
+        """Reset dirty worktree: discard changes, switch to default branch, delete recipro/* branches."""
+        result: dict[str, list[str]] = {"discarded": [], "deleted_branches": [], "switched_to": []}
+
+        # 1. Discard all uncommitted changes
+        status = self.status_lines()
+        if status:
+            run_command(["git", "checkout", "."], cwd=self.repo_path, check=False)
+            run_command(["git", "clean", "-fd"], cwd=self.repo_path, check=False)
+            result["discarded"] = status
+
+        # 2. Switch to default branch
+        current = self.current_ref()
+        default = self.default_branch()
+        if current != default:
+            run_command(["git", "switch", default], cwd=self.repo_path, check=True)
+            result["switched_to"] = [f"{current} → {default}"]
+
+        # 3. Delete local recipro/* branches
+        branches_out = run_command(
+            ["git", "branch", "--list", "recipro/*"],
+            cwd=self.repo_path,
+            check=True,
+        )
+        for line in branches_out.stdout.splitlines():
+            branch = line.strip().lstrip("* ")
+            if branch:
+                run_command(["git", "branch", "-D", branch], cwd=self.repo_path, check=False)
+                result["deleted_branches"].append(branch)
+
+        return result
+
     def merge_pr(self, pr_ref: str) -> None:
         command = ["gh", "pr", "merge", pr_ref, "--squash"]
         run_command(command, cwd=self.repo_path, check=True)
