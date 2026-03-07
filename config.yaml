@@ -1,0 +1,29 @@
+repo_path: /Users/lizhou/trill-backend
+max_improvements: 3
+max_review_loops: 5
+max_files_per_change: 5
+
+codex_cmd: codex
+claude_cmd: claude
+gh_cmd: gh
+
+branch_prefix: recipro/
+commit_prefix: improve
+base_branch:
+
+dry_run: false
+require_clean_worktree: true
+push_branch: false
+github_auto_pr: false
+github_auto_merge: false
+github_merge_mode: squash
+report_with_codex: true
+
+claude_permission_mode: acceptEdits
+
+codex_extra_args: []
+claude_extra_args: []
+validation_commands: []
+
+report_dir: reports
+memory_dir: memory
