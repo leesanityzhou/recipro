@@ -4,6 +4,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+DATA_DIR = Path.home() / ".recipro"
+
+DEFAULT_SETTINGS = {
+    "max_improvements": 1,
+    "require_clean_worktree": True,
+    "summarize_report": True,
+    "auto_merge": False,
+}
+
 
 def _parse_scalar(raw: str) -> Any:
     value = raw.strip()
@@ -27,11 +36,12 @@ def _parse_scalar(raw: str) -> Any:
     return value
 
 
-def load_settings(path: Path) -> dict[str, Any]:
-    """Load simple key: value settings from a yaml-like file."""
+def load_settings() -> dict[str, Any]:
+    """Load settings from ~/.recipro/config.yaml, merged with defaults."""
+    settings = dict(DEFAULT_SETTINGS)
+    path = DATA_DIR / "config.yaml"
     if not path.exists():
-        return {}
-    data: dict[str, Any] = {}
+        return settings
     for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -39,13 +49,26 @@ def load_settings(path: Path) -> dict[str, Any]:
         if ":" not in stripped:
             continue
         key, raw_value = stripped.split(":", 1)
-        data[key.strip()] = _parse_scalar(raw_value)
-    return data
+        settings[key.strip()] = _parse_scalar(raw_value)
+    return settings
+
+
+def ensure_data_dir() -> None:
+    """Create ~/.recipro/ and write default config.yaml if missing."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = DATA_DIR / "config.yaml"
+    if not config_path.exists():
+        config_path.write_text(
+            "max_improvements: 1\n"
+            "require_clean_worktree: true\n"
+            "summarize_report: true\n"
+            "auto_merge: false\n",
+            encoding="utf-8",
+        )
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    project_root: Path
     repo_path: Path
     focus: str | None
     max_improvements: int
@@ -63,11 +86,11 @@ class AppConfig:
 
     @property
     def report_dir(self) -> Path:
-        return self.project_root / "reports"
+        return DATA_DIR / "reports"
 
     @property
     def memory_dir(self) -> Path:
-        return self.project_root / "memory"
+        return DATA_DIR / "memory"
 
     @property
     def state_path(self) -> Path:

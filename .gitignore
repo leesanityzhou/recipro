@@ -3,3 +3,4 @@ __pycache__/
 memory/
 reports/*.md
 
+recipro.egg-info/

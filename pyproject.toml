@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recipro"
+version = "0.1.0"
+description = "Autonomous multi-agent code improvement system"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Li Zhou" }]
+keywords = ["ai", "code-review", "multi-agent", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+recipro = "recipro.cli:_entry"
+
+[tool.setuptools.packages.find]
+include = ["recipro*"]
+
+[project.urls]
+Repository = "https://github.com/leesanityzhou/recipro"

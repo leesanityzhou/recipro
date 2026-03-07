@@ -28,51 +28,13 @@ Recipro is an autonomous multi-agent code improvement system. It reads your code
 4. **Builder** again — runs lint/tests, creates branch, commits, pushes, opens PR
 5. **Ambient Agent** (GPT or Gemini) — monitors all agent output in the background, provides intelligent status updates, cost tracking, anomaly detection, and a run summary
 
-## Features
+## Install
 
-- **Flexible backend assignment** — mix and match Claude and Codex per role (planner/builder/critic)
-- **Interactive setup** — first run prompts for repo path, backend + model selection; saves preferences for all subsequent runs
-- **Focus mode** — provide a natural-language directive (any language) each run, and Recipro tailors the entire pipeline to fulfill it. No directive = general code scan
-- **Ambient supervisor** — a lightweight background agent that watches all agent output and provides:
-  - Intelligent, concise status updates (not mechanical logs)
-  - Anomaly detection (stuck agents, loops, quality concerns)
-  - Per-role cost estimation with run totals
-  - Human-readable run summary at the end
-  - Automatic language matching (responds in the same language as your directive)
-- **Unlimited review loops** — Builder and Critic iterate until the code passes review, no arbitrary caps
-- **Automatic PR creation** — Builder handles the full git workflow (branch, lint, test, commit, push, PR)
-- **Auto-merge** — optionally squash-merge PRs automatically after creation
-- **Daily reports** — markdown reports with improvements, files changed, risks, and manual actions
-- **Zero dependencies** — pure Python stdlib, no pip install needed
-
-## Layout
-
-```text
-recipro/
-├─ run.py                  # Entry point
-├─ config.yaml             # Base settings (toggles only)
-├─ recipro/
-│  ├─ ambient.py           # Ambient supervisor agent
-│  ├─ backends/
-│  │  ├─ base.py           # Abstract backend interface
-│  │  ├─ codex.py          # OpenAI Codex backend
-│  │  └─ claude.py         # Anthropic Claude backend
-│  ├─ core/
-│  │  ├─ orchestrator.py   # Main pipeline orchestration
-│  │  └─ git_tools.py      # Git operations
-│  ├─ config.py            # Configuration loading
-│  ├─ models.py            # Data models
-│  ├─ prompts.py           # All agent prompts
-│  ├─ reporting.py         # Report generation
-│  ├─ state.py             # Run history persistence
-│  └─ utils.py             # Subprocess, streaming, JSON parsing
-├─ memory/                 # Auto-generated, gitignored
-│  ├─ state.json           # Run history
-│  └─ preferences.json     # Saved repo path, backend/model selections
-└─ reports/                # Generated reports
+```bash
+pip install recipro
 ```
 
-## Requirements
+### Prerequisites
 
 - Python 3.11+
 - `claude` CLI — `npm install -g @anthropic-ai/claude-code` then `claude login`
@@ -84,7 +46,7 @@ recipro/
 ## Quick start
 
 ```bash
-python3 run.py
+recipro
 ```
 
 On first run, Recipro walks you through setup:
@@ -96,23 +58,39 @@ First-time setup:
   Critic backend: ...
   Builder backend: ...
   Ambient narrator: ...
-  Preferences saved.
+  Preferences saved to ~/.recipro/.
 
 What should Recipro focus on?
   > your directive here (or press Enter for general scan)
 ```
 
-Preferences are saved to `memory/preferences.json`. Subsequent runs skip setup and only ask for the focus directive.
+Preferences are saved to `~/.recipro/`. Subsequent runs skip setup and only ask for the focus directive.
 
 ```bash
-python3 run.py --reconfigure   # Re-do setup (change repo, backends, models)
-python3 run.py --dry-run       # Plan only, no repo changes
-python3 run.py --no-select     # Skip all prompts, use saved preferences
+recipro --reconfigure   # Re-do setup (change repo, backends, models)
+recipro --dry-run       # Plan only, no repo changes
+recipro --no-select     # Skip all prompts, use saved preferences
 ```
+
+## Features
+
+- **Flexible backend assignment** — mix and match Claude and Codex per role (planner/builder/critic)
+- **Interactive setup** — first run prompts for repo path, backend + model selection; preferences persist across runs
+- **Focus mode** — provide a natural-language directive (any language) each run, and Recipro tailors the entire pipeline to fulfill it. No directive = general code scan
+- **Ambient supervisor** — a lightweight background agent that watches all agent output and provides:
+  - Intelligent, concise status updates (not mechanical logs)
+  - Anomaly detection (stuck agents, loops, quality concerns)
+  - Per-role cost estimation with run totals
+  - Human-readable run summary at the end
+  - Automatic language matching (responds in the same language as your directive)
+- **Unlimited review loops** — Builder and Critic iterate until the code passes review, no arbitrary caps
+- **Automatic PR creation** — Builder handles the full git workflow (branch, lint, test, commit, push, PR)
+- **Auto-merge** — optionally squash-merge PRs automatically after creation
+- **Zero dependencies** — pure Python stdlib, no pip packages required
 
 ## Configuration
 
-`config.yaml` contains base settings only. Edit these directly:
+Settings live at `~/.recipro/config.yaml` (auto-created on first run):
 
 ```yaml
 max_improvements: 1            # Tasks per run
@@ -121,7 +99,20 @@ summarize_report: true         # Generate AI summary in report
 auto_merge: false              # Auto squash-merge PRs after creation
 ```
 
-Everything else (repo path, backends, models, ambient agent) lives in `memory/preferences.json`, managed by the interactive setup.
+Everything else (repo path, backends, models, ambient agent) is in `~/.recipro/memory/preferences.json`, managed by the interactive setup.
+
+## Data directory
+
+All Recipro state lives in `~/.recipro/`:
+
+```text
+~/.recipro/
+├─ config.yaml             # Base settings
+├─ memory/
+│  ├─ preferences.json     # Saved repo path, backend/model selections
+│  └─ state.json           # Run history
+└─ reports/                # Generated markdown reports
+```
 
 ## Notes
 
