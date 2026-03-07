@@ -42,10 +42,11 @@ Preferences persist — subsequent runs only ask for the focus directive.
 ## Usage
 
 ```bash
-recipro                # Normal run: setup (if first time) → focus → execute
-recipro --dry-run      # Plan only, no repo changes
-recipro --reconfigure  # Re-do setup (change repo, backends, models)
-recipro --clean        # Reset target repo: discard changes, switch to default branch, delete task branches
+recipro                          # Run: setup (if first time) → focus → execute
+recipro --reconfigure            # Re-do setup (change repo, backends, models)
+recipro --set KEY=VALUE          # Change a config setting
+recipro --dry-run                # Plan only, no repo changes
+recipro --clean                  # Reset dirty worktree from a failed run
 ```
 
 ### Focus directive
@@ -58,6 +59,33 @@ What should Recipro focus on?
 ```
 
 Press Enter with no input for a general code scan (finds bugs, security issues, maintainability improvements).
+
+### Changing settings
+
+Backend, model, and repo path — re-run interactive setup:
+
+```bash
+recipro --reconfigure
+```
+
+Config toggles — set directly from CLI:
+
+```bash
+recipro --set verbose=true           # Show raw agent output
+recipro --set max_improvements=3     # Tasks per run
+recipro --set auto_merge=true        # Squash-merge PRs automatically
+recipro --set require_clean_worktree=false
+```
+
+### Cleaning up
+
+If a run fails and leaves the target repo in a dirty state:
+
+```bash
+recipro --clean
+```
+
+This discards uncommitted changes, switches back to main, and deletes all `recipro/*` task branches.
 
 ## How it works
 
@@ -99,15 +127,16 @@ Press Enter with no input for a general code scan (finds bugs, security issues, 
 
 ## Configuration
 
-`~/.recipro/config.yaml` (auto-created on first run):
+`~/.recipro/config.yaml` (auto-created on first run, editable via `recipro --set`):
 
 ```yaml
 max_improvements: 1            # Tasks per run
 require_clean_worktree: true   # Require clean git state before run
 auto_merge: false              # Auto squash-merge PRs after creation
+verbose: false                 # Show raw agent streaming output
 ```
 
-Backend/model selections are in `~/.recipro/memory/preferences.json`, managed by the interactive setup (`--reconfigure` to change).
+Backend/model selections are in `~/.recipro/memory/preferences.json`, managed via `recipro --reconfigure`.
 
 ## Data directory
 
