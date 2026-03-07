@@ -45,7 +45,7 @@ class CodexAgent:
             repo_path=repo_path,
             prompt=scan_prompt(
                 max_improvements=self.config.max_improvements,
-                max_files_per_change=self.config.max_files_per_change,
+                focus=self.config.focus,
             ),
             schema=schema,
             sandbox="read-only",
@@ -111,6 +111,7 @@ class CodexAgent:
             output_path = temp_path / "output.txt"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
 
+            model_args = ("--model", self.config.codex_model) if self.config.codex_model else ()
             log.debug("Codex command: %s", " ".join(self.config.codex_cmd))
             command = [
                 *self.config.codex_cmd,
@@ -124,6 +125,7 @@ class CodexAgent:
                 str(schema_path),
                 "--output-last-message",
                 str(output_path),
+                *model_args,
                 *self.config.codex_extra_args,
                 prompt,
             ]

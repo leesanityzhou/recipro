@@ -23,14 +23,15 @@ class ClaudeAgent:
     ) -> ImplementationResult:
         prompt = implement_prompt(
             task,
-            max_files_per_change=self.config.max_files_per_change,
             feedback=feedback,
         )
+        model_args = ["--model", self.config.claude_model] if self.config.claude_model else []
         command = [
             *self.config.claude_cmd,
             "-p",
             "--permission-mode",
             self.config.claude_permission_mode,
+            *model_args,
             *self.config.claude_extra_args,
             prompt,
         ]

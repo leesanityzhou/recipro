@@ -2,87 +2,96 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
+from pathlib import Path
 
-from ..agents import ClaudeAgent, CodexAgent
+from ..ambient import get_agent as get_ambient
+from ..backends import create_backend
 from ..config import AppConfig
-from ..models import ImprovementTask, TaskOutcome
-from ..prompts import pr_body
+from ..models import ImplementationResult, ImprovementTask, ReviewResult, TaskOutcome
+from ..prompts import implement_prompt, push_pr_prompt, report_prompt, review_prompt, scan_prompt
 from ..reporting import build_report_markdown, write_report
 from ..state import append_run
-from ..utils import CommandError, dedupe_strings, ensure_directory, run_command
+from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, run_command
 from .git_tools import GitRepo
 
 log = logging.getLogger("recipro")
+
+REVIEW_SCHEMA = {
+    "type": "object",
+    "required": ["status", "summary", "findings", "manual_actions"],
+    "properties": {
+        "status": {"type": "string", "enum": ["pass", "fail"]},
+        "summary": {"type": "string"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "manual_actions": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
+REPORT_SCHEMA = {
+    "type": "object",
+    "required": ["improvements_completed", "files_changed", "risks", "manual_actions_required"],
+    "properties": {
+        "improvements_completed": {"type": "array", "items": {"type": "string"}},
+        "files_changed": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+        "manual_actions_required": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
 
 
 class Orchestrator:
     def __init__(self, config: AppConfig):
         self.config = config
-        self.codex = CodexAgent(config)
-        self.claude = ClaudeAgent(config)
+        self.critic = create_backend(config, "critic")
+        self.builder = create_backend(config, "builder")
         self.git = GitRepo(config)
 
     def _check_auth(self) -> None:
-        """Verify that codex and claude CLIs are installed and authenticated."""
-        import shutil
-        import subprocess
+        from ..backends.claude import ClaudeBackend
+        checked: set[str] = set()
+        # Planner is always Claude — check it first
+        planner_check = ClaudeBackend(model=None, extra_args=())
+        planner_check.check_auth()
+        checked.add("claude")
+        for backend in (self.critic, self.builder):
+            if backend.name not in checked:
+                backend.check_auth()
+                checked.add(backend.name)
+        log.info("All backends authenticated successfully.")
 
-        codex_bin = self.config.codex_cmd[0]
-        claude_bin = self.config.claude_cmd[0]
+    def _plan_tasks(self) -> list[ImprovementTask]:
+        """Use Claude plan mode to analyze the repo and generate tasks."""
+        prompt = scan_prompt(
+            max_improvements=self.config.max_improvements,
+            focus=self.config.focus,
+        )
+        model_args = ("--model", self.config.planner_model) if self.config.planner_model else ()
+        command = [
+            "claude", "-p",
+            "--dangerously-skip-permissions",
+            *model_args,
+            prompt,
+        ]
+        result = run_command(command, cwd=self.config.repo_path, check=True, stream="claude")
+        ambient = get_ambient()
+        if ambient:
+            ambient.track_cost("planner", self.config.planner_model or "sonnet", len(prompt), len(result.stdout))
+        payload = extract_json_value(result.stdout)
+        if isinstance(payload, dict) and "tasks" in payload:
+            items = payload["tasks"]
+        elif isinstance(payload, list):
+            items = payload
+        else:
+            raise RuntimeError(f"Unexpected planner output: {str(payload)[:200]}")
+        tasks = [
+            task for item in items
+            if (task := ImprovementTask.from_dict(item)).title and task.description
+        ][: self.config.max_improvements]
+        return tasks
 
-        if not shutil.which(codex_bin):
-            raise SystemExit(
-                f"'{codex_bin}' not found. Install it with: npm install -g @openai/codex\n"
-                f"Then authenticate with: codex login"
-            )
-
-        if not shutil.which(claude_bin):
-            raise SystemExit(
-                f"'{claude_bin}' not found. Install it with: npm install -g @anthropic-ai/claude-code\n"
-                f"Then authenticate with: claude login"
-            )
-
-        # Quick smoke test for codex auth
-        log.info("Checking Codex authentication...")
-        try:
-            result = subprocess.run(
-                [*self.config.codex_cmd, "exec", "--sandbox", "read-only", "echo ok"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                if "auth" in stderr.lower() or "api key" in stderr.lower() or "unauthorized" in stderr.lower():
-                    raise SystemExit(
-                        f"Codex is not authenticated. Run: codex login"
-                    )
-                raise SystemExit(f"Codex check failed: {stderr or result.stdout.strip()}")
-        except FileNotFoundError:
-            raise SystemExit(f"'{codex_bin}' not found on PATH.")
-        except subprocess.TimeoutExpired:
-            log.warning("Codex auth check timed out, proceeding anyway...")
-
-        # Quick smoke test for claude auth
-        log.info("Checking Claude authentication...")
-        try:
-            result = subprocess.run(
-                [*self.config.claude_cmd, "-p", "echo ok"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if result.returncode != 0:
-                stderr = result.stderr.strip()
-                if "auth" in stderr.lower() or "api key" in stderr.lower() or "login" in stderr.lower():
-                    raise SystemExit(
-                        f"Claude Code is not authenticated. Run: claude login"
-                    )
-                raise SystemExit(f"Claude check failed: {stderr or result.stdout.strip()}")
-        except FileNotFoundError:
-            raise SystemExit(f"'{claude_bin}' not found on PATH.")
-        except subprocess.TimeoutExpired:
-            log.warning("Claude auth check timed out, proceeding anyway...")
-
-        log.info("Both Codex and Claude authenticated successfully.")
-
-    def run(self) -> Path:
+    def run(self) -> tuple[Path, list[TaskOutcome]]:
         ensure_directory(self.config.report_dir)
         ensure_directory(self.config.memory_dir)
 
@@ -99,11 +108,12 @@ class Orchestrator:
         if self.config.require_clean_worktree and not self.config.dry_run:
             self.git.ensure_clean_worktree()
 
-        log.info("Scanning repo with Codex: %s", repo_path)
-        tasks = self.codex.scan_repo(repo_path)
-        log.info("Codex found %d improvement task(s)", len(tasks))
+        log.info("Planning improvements with Claude (plan mode): %s", repo_path)
+        tasks = self._plan_tasks()
+        log.info("Planner found %d improvement task(s)", len(tasks))
         for i, task in enumerate(tasks, 1):
             log.info("  [%d] %s", i, task.title)
+
         outcomes: list[TaskOutcome] = []
 
         if self.config.dry_run:
@@ -118,39 +128,47 @@ class Orchestrator:
                 )
             return self._finalize(started_at, outcomes)
 
-        original_ref = self.config.base_branch or self.git.current_ref()
-        start_point = original_ref
-
         for i, task in enumerate(tasks, 1):
             log.info("Running task %d/%d: %s", i, len(tasks), task.title)
-            outcome = self._run_task(task, start_point=start_point)
+            outcome = self._run_task(task)
             outcomes.append(outcome)
             log.info("Task '%s' finished with status: %s", task.title, outcome.status)
             if outcome.status == "failed":
                 break
-            self.git.switch(original_ref)
 
         return self._finalize(started_at, outcomes)
 
-    def _run_task(self, task: ImprovementTask, *, start_point: str) -> TaskOutcome:
-        log.info("Creating branch for task: %s", task.title)
-        branch_name = self.git.create_branch(task.title, start_point=start_point)
+    def _run_task(self, task: ImprovementTask) -> TaskOutcome:
         outcome = TaskOutcome(
             task=task,
             status="failed",
-            branch=branch_name,
             manual_actions=list(task.manual_actions),
         )
         feedback: list[str] = []
 
         try:
-            for review_round in range(1, self.config.max_review_loops + 1):
-                log.info("  Round %d/%d: Claude implementing...", review_round, self.config.max_review_loops)
-                implementation = self.claude.implement_task(
-                    self.config.repo_path,
-                    task,
-                    feedback,
+            review_round = 0
+            while True:
+                review_round += 1
+                log.info("  Round %d: %s implementing...", review_round, self.builder.name)
+
+                prompt = implement_prompt(task, feedback=feedback)
+                result_text = self.builder.exec_text(
+                    prompt, self.config.repo_path, editable=True,
                 )
+                ambient = get_ambient()
+                if ambient:
+                    ambient.track_cost("builder", self.builder.model, len(prompt), len(result_text))
+
+                try:
+                    impl_payload = extract_json_value(result_text)
+                    if isinstance(impl_payload, dict):
+                        implementation = ImplementationResult.from_dict(impl_payload)
+                    else:
+                        implementation = ImplementationResult(summary=result_text.strip())
+                except ValueError:
+                    implementation = ImplementationResult(summary=result_text.strip())
+
                 outcome.review_rounds = review_round
                 outcome.summary = implementation.summary or outcome.summary
                 outcome.tests_ran = dedupe_strings(outcome.tests_ran + implementation.tests_ran)
@@ -160,18 +178,18 @@ class Orchestrator:
 
                 if not self.git.has_changes():
                     raise RuntimeError(
-                        f"Claude did not create any repository changes for task '{task.title}'."
+                        f"Builder did not create any repository changes for task '{task.title}'."
                     )
 
-                log.info("  Round %d/%d: running validations...", review_round, self.config.max_review_loops)
-                validation_findings = self._run_validations()
-                if validation_findings:
-                    log.warning("  Validation failed (%d finding(s)), retrying...", len(validation_findings))
-                    feedback = validation_findings
-                    continue
-
-                log.info("  Round %d/%d: Codex reviewing changes...", review_round, self.config.max_review_loops)
-                review = self.codex.review_changes(self.config.repo_path)
+                log.info("  Round %d: %s reviewing changes...", review_round, self.critic.name)
+                review_prompt_text = review_prompt(self.config.focus)
+                review_payload = self.critic.exec_json(
+                    review_prompt_text, REVIEW_SCHEMA, self.config.repo_path,
+                )
+                ambient = get_ambient()
+                if ambient:
+                    ambient.track_cost("critic", self.critic.model, len(review_prompt_text), len(str(review_payload)))
+                review = ReviewResult.from_dict(review_payload)
                 outcome.manual_actions = dedupe_strings(
                     outcome.manual_actions + review.manual_actions
                 )
@@ -183,46 +201,37 @@ class Orchestrator:
                 log.info("  Review failed (%d finding(s)), iterating...", len(review.findings))
                 feedback = review.findings
                 if not feedback:
-                    raise RuntimeError("Codex returned fail without concrete findings.")
-            else:
-                raise RuntimeError(
-                    f"Codex still had findings after {self.config.max_review_loops} review rounds."
-                )
+                    raise RuntimeError("Critic returned fail without concrete findings.")
 
             outcome.changed_files = self.git.changed_files()
-            commit_message = f"{self.config.commit_prefix}: {task.title}"
-            outcome.commit_sha = self.git.commit_all(commit_message)
 
-            if self.config.push_branch:
-                self.git.push_branch(branch_name)
-
-            if self.config.github_auto_pr:
-                outcome.pr_url = self.git.create_pr(
-                    branch_name,
-                    task.title,
-                    pr_body(outcome),
-                )
-                if self.config.github_auto_merge and outcome.pr_url:
-                    self.git.merge_pr(outcome.pr_url)
+            # Let builder handle branch, commit, lint, test, push, PR
+            log.info("  %s pushing PR...", self.builder.name)
+            pr_prompt_text = push_pr_prompt(task, outcome.summary, outcome.changed_files, auto_merge=self.config.auto_merge)
+            pr_text = self.builder.exec_text(
+                pr_prompt_text, self.config.repo_path, editable=True,
+            )
+            ambient = get_ambient()
+            if ambient:
+                ambient.track_cost("builder", self.builder.model, len(pr_prompt_text), len(pr_text))
+            try:
+                pr_payload = extract_json_value(pr_text)
+                if isinstance(pr_payload, dict):
+                    outcome.pr_url = pr_payload.get("pr_url")
+                    outcome.branch = pr_payload.get("branch_name", outcome.branch)
+                    outcome.commit_sha = pr_payload.get("commit_sha")
+            except ValueError:
+                log.warning("  Could not parse PR result, continuing...")
 
             outcome.status = "completed"
+            if outcome.pr_url:
+                log.info("  PR created: %s", outcome.pr_url)
             return outcome
         except (RuntimeError, CommandError) as error:
             outcome.error = str(error)
             return outcome
 
-    def _run_validations(self) -> list[str]:
-        findings: list[str] = []
-        for command in self.config.validation_commands:
-            try:
-                run_command(command, cwd=self.config.repo_path, check=True)
-            except CommandError as error:
-                findings.append(
-                    f"Validation command failed: {' '.join(command)}\n{error.stderr.strip() or error.stdout.strip()}"
-                )
-        return findings
-
-    def _finalize(self, started_at: datetime, outcomes: list[TaskOutcome]) -> Path:
+    def _finalize(self, started_at: datetime, outcomes: list[TaskOutcome]) -> tuple[Path, list[TaskOutcome]]:
         log.info("Finalizing run and generating report...")
         run_date = date.today()
         markdown = build_report_markdown(
@@ -232,14 +241,11 @@ class Orchestrator:
             dry_run=self.config.dry_run,
         )
 
-        if self.config.report_with_codex and outcomes:
+        if self.config.summarize_report and outcomes:
             try:
-                summary = self.codex.summarize_report(
-                    self.config.repo_path,
-                    run_date.isoformat(),
-                    outcomes,
-                )
-                markdown = self._render_codex_summary(run_date, summary)
+                prompt = report_prompt(outcomes, str(self.config.repo_path), run_date.isoformat())
+                summary = self.critic.exec_json(prompt, REPORT_SCHEMA, self.config.repo_path)
+                markdown = self._render_summary(run_date, summary)
             except Exception:
                 pass
 
@@ -255,9 +261,9 @@ class Orchestrator:
                 "outcomes": [outcome.to_dict() for outcome in outcomes],
             },
         )
-        return report_path
+        return report_path, outcomes
 
-    def _render_codex_summary(self, run_date: date, summary: dict[str, list[str]]) -> str:
+    def _render_summary(self, run_date: date, summary: dict[str, list[str]]) -> str:
         sections = [
             ("Improvements Completed", summary.get("improvements_completed", [])),
             ("Files Changed", summary.get("files_changed", [])),

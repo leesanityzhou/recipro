@@ -57,7 +57,7 @@ class GitRepo:
         return bool(self.status_lines())
 
     def create_branch(self, title: str, start_point: str) -> str:
-        base_name = f"{self.config.branch_prefix}{slugify(title)}"
+        base_name = f"recipro/{slugify(title)}"
         branch_name = base_name
         suffix = 2
         while self.branch_exists(branch_name):
@@ -111,7 +111,7 @@ class GitRepo:
 
     def create_pr(self, branch_name: str, title: str, body: str) -> str:
         command = [
-            *self.config.gh_cmd,
+            "gh",
             "pr",
             "create",
             "--head",
@@ -121,8 +121,6 @@ class GitRepo:
             "--body",
             body,
         ]
-        if self.config.base_branch:
-            command.extend(["--base", self.config.base_branch])
         result = run_command(command, cwd=self.repo_path, check=True)
         return result.stdout.strip().splitlines()[-1].strip()
 
@@ -131,7 +129,7 @@ class GitRepo:
         if mode not in {"merge", "rebase", "squash"}:
             raise RuntimeError(f"Unsupported github_merge_mode: {self.config.github_merge_mode}")
 
-        command = [*self.config.gh_cmd, "pr", "merge", pr_ref, f"--{mode}"]
+        command = ["gh", "pr", "merge", pr_ref, f"--{mode}"]
         if self.config.github_auto_merge:
             command.append("--auto")
         run_command(command, cwd=self.repo_path, check=True)

@@ -106,7 +106,7 @@ def _claude_stream_filter(line: str, state: dict[str, Any]) -> str | None:
 #               False = keep stderr separate, only stream/capture stdout (claude: tool noise on stderr)
 STREAM_CONFIGS: dict[str, dict[str, Any]] = {
     "codex": {"filter": _codex_stream_filter, "merge_stderr": True},
-    "claude": {"filter": _claude_stream_filter, "merge_stderr": False},
+    "claude": {"filter": _claude_stream_filter, "merge_stderr": True},
 }
 
 
@@ -143,17 +143,25 @@ def run_command(
         if input_text and proc.stdin:
             proc.stdin.write(input_text)
             proc.stdin.close()
+        from .ambient import get_agent
+        ambient = get_agent()
         stdout_lines: list[str] = []
         for line in proc.stdout:
             stdout_lines.append(line)
             if stream_filter:
                 filtered = stream_filter(line, filter_state)
                 if filtered:
-                    sys.stderr.write(filtered)
-                    sys.stderr.flush()
+                    if ambient and ambient.available:
+                        ambient.add(filtered)
+                    else:
+                        sys.stderr.write(filtered)
+                        sys.stderr.flush()
             else:
-                sys.stderr.write(line)
-                sys.stderr.flush()
+                if ambient and ambient.available:
+                    ambient.add(line)
+                else:
+                    sys.stderr.write(line)
+                    sys.stderr.flush()
         proc.wait()
         result = subprocess.CompletedProcess(
             args=list(command),

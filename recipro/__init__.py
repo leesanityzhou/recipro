@@ -1,6 +1,5 @@
-"""Recipro: a dual-agent code improvement loop."""
+"""Recipro: autonomous multi-agent code improvement."""
 
-from .config import AppConfig, load_config
+from .config import AppConfig
 
-__all__ = ["AppConfig", "load_config"]
-
+__all__ = ["AppConfig"]

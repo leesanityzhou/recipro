@@ -5,7 +5,7 @@ import json
 from .models import ImprovementTask, TaskOutcome
 
 
-def scan_prompt(*, max_improvements: int, max_files_per_change: int) -> str:
+def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
     example = {
         "tasks": [
             {
@@ -17,10 +17,27 @@ def scan_prompt(*, max_improvements: int, max_files_per_change: int) -> str:
             }
         ]
     }
+    json_shape = json.dumps(example, ensure_ascii=False, indent=2)
+
+    if focus:
+        return f"""
+You are the critic agent in Recipro, a dual-agent code-improvement loop.
+
+The user has given you a specific directive. Read it carefully, understand the full intent, and produce up to {max_improvements} concrete tasks that a builder agent should execute to fulfill it.
+
+User directive:
+{focus}
+
+Inspect the repository in the current working directory. Break the directive down into actionable improvement tasks. Each task should be specific enough for another agent to implement without further clarification.
+
+Return strict JSON only, matching this shape:
+{json_shape}
+""".strip()
+
     return f"""
 You are the critic agent in Recipro, a dual-agent code-improvement loop.
 
-Inspect the repository in the current working directory and return up to {max_improvements} safe, high-impact improvements that can be implemented in small pull requests.
+Inspect the repository in the current working directory and return up to {max_improvements} safe, high-impact improvements.
 
 Prioritize:
 - bugs
@@ -35,18 +52,17 @@ Hard constraints:
 - no dependency upgrades
 - no migrations
 - no API changes
-- no task that should touch more than {max_files_per_change} files
 - prefer tasks that another agent can complete locally without outside systems
+- touch as many files as needed to do the job correctly
 
 Return strict JSON only, matching this shape:
-{json.dumps(example, ensure_ascii=False, indent=2)}
+{json_shape}
 """.strip()
 
 
 def implement_prompt(
     task: ImprovementTask,
     *,
-    max_files_per_change: int,
     feedback: list[str],
 ) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
@@ -72,11 +88,11 @@ Feedback to address this round:
 {feedback_block}
 
 Hard constraints:
-- keep the patch minimal and safe
-- modify at most {max_files_per_change} files
+- keep the patch safe and correct
+- touch as many files as needed to do the job properly
 - do not change public APIs unless the task explicitly requires it
 - do not upgrade dependencies
-- do not run git commands
+- do not run git commands (branching and committing is handled externally)
 - if you run tests, keep them as small and relevant as possible
 
 After editing the repository, return strict JSON only:
@@ -89,7 +105,34 @@ After editing the repository, return strict JSON only:
 """.strip()
 
 
-def review_prompt() -> str:
+def review_prompt(focus: str | None = None) -> str:
+    if focus:
+        return f"""
+You are the critic agent in Recipro.
+
+The user gave the following directive:
+{focus}
+
+A builder agent has made changes to the repository to fulfill this directive. Review the changes against HEAD.
+
+Your job is to ensure the user's intent has been fully and correctly implemented. Check:
+- Does the implementation actually address what the user asked for?
+- Are there any parts of the directive that were missed or misunderstood?
+- Are there correctness bugs, regressions, or unsafe behavior in the changes?
+
+Ignore style-only nitpicks. Focus on whether the directive was fulfilled correctly.
+
+Return strict JSON only:
+{{
+  "status": "pass" or "fail",
+  "summary": "short explanation",
+  "findings": ["concrete fix 1", "concrete fix 2"],
+  "manual_actions": []
+}}
+
+Use "pass" only when the directive is fully and correctly implemented.
+""".strip()
+
     return """
 You are the critic agent in Recipro.
 
@@ -138,26 +181,36 @@ Return strict JSON only:
 """.strip()
 
 
-def pr_body(outcome: TaskOutcome) -> str:
-    lines = [
-        "## Summary",
-        outcome.summary or outcome.task.description,
-        "",
-        "## Task",
-        f"- {outcome.task.title}",
-    ]
+def push_pr_prompt(task: ImprovementTask, summary: str, changed_files: list[str], *, auto_merge: bool = False) -> str:
+    files_block = "\n".join(f"- {f}" for f in changed_files) if changed_files else "- (check git status)"
+    merge_step = "\n7. Merge the PR using `gh pr merge --squash --delete-branch`." if auto_merge else ""
+    return f"""
+You are the builder agent in Recipro. The implementation has been reviewed and approved.
+Now finalize and ship it as a pull request.
 
-    if outcome.changed_files:
-        lines.extend(["", "## Files Changed"])
-        lines.extend(f"- {path}" for path in outcome.changed_files)
+Task: {task.title}
+Description: {task.description}
+Implementation summary: {summary}
 
-    if outcome.tests_ran:
-        lines.extend(["", "## Validation"])
-        lines.extend(f"- {command}" for command in outcome.tests_ran)
+Changed files:
+{files_block}
 
-    if outcome.manual_actions:
-        lines.extend(["", "## Manual Actions Required"])
-        lines.extend(f"- {item}" for item in outcome.manual_actions)
+Steps to follow in order:
+1. Run linting and formatting checks if the project has them configured (e.g. ruff, eslint, black, prettier).
+2. Run unit tests if the project has them (e.g. pytest, jest). Fix any failures.
+3. Create a new git branch with a clear, descriptive name.
+4. Stage and commit all changes with a good commit message.
+5. Push the branch to origin.
+6. Create a pull request using `gh pr create` with a clear title and description.{merge_step}
 
-    return "\n".join(lines).strip()
+Return strict JSON only:
+{{
+  "pr_url": "the full URL of the created PR",
+  "branch_name": "the branch name you used",
+  "commit_message": "the commit message you used",
+  "lint_passed": true,
+  "tests_passed": true,
+  "merged": {"true" if auto_merge else "false"}
+}}
+""".strip()
 
