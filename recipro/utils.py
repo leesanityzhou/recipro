@@ -151,17 +151,15 @@ def run_command(
             if stream_filter:
                 filtered = stream_filter(line, filter_state)
                 if filtered:
+                    sys.stderr.write(filtered)
+                    sys.stderr.flush()
                     if ambient and ambient.available:
                         ambient.add(filtered)
-                    else:
-                        sys.stderr.write(filtered)
-                        sys.stderr.flush()
             else:
+                sys.stderr.write(line)
+                sys.stderr.flush()
                 if ambient and ambient.available:
                     ambient.add(line)
-                else:
-                    sys.stderr.write(line)
-                    sys.stderr.flush()
         proc.wait()
         result = subprocess.CompletedProcess(
             args=list(command),

@@ -259,7 +259,7 @@ Rules:
         response = self._ask_llm(new_messages)
         if response and response.strip():
             text = response.strip()
-            sys.stderr.write(f"\033[36m{text}\033[0m\n")
+            sys.stderr.write(f"\n\033[36m  [narrator] {text}\033[0m\n")
             sys.stderr.flush()
             self._reported.append(text)
 
