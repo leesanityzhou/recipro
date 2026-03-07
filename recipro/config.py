@@ -53,6 +53,33 @@ def load_settings() -> dict[str, Any]:
     return settings
 
 
+def save_setting(key: str, value: Any) -> None:
+    """Update a single key in ~/.recipro/config.yaml, preserving other lines."""
+    path = DATA_DIR / "config.yaml"
+    if value is True:
+        raw = "true"
+    elif value is False:
+        raw = "false"
+    else:
+        raw = str(value)
+
+    lines: list[str] = []
+    found = False
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and ":" in stripped:
+                k = stripped.split(":", 1)[0].strip()
+                if k == key:
+                    lines.append(f"{key}: {raw}")
+                    found = True
+                    continue
+            lines.append(line)
+    if not found:
+        lines.append(f"{key}: {raw}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def ensure_data_dir() -> None:
     """Create ~/.recipro/ and write default config.yaml if missing."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)

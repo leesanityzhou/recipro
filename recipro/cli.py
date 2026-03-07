@@ -6,7 +6,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .config import AppConfig, DATA_DIR, ensure_data_dir, load_settings
+from .config import AppConfig, DATA_DIR, ensure_data_dir, load_settings, save_setting, _parse_scalar
 
 BACKENDS: list[tuple[str, str]] = [
     ("codex", "OpenAI Codex"),
@@ -223,6 +223,12 @@ def parse_args() -> argparse.Namespace:
         help="Clean up target repo: discard changes, switch to default branch, delete recipro/* branches.",
     )
     parser.add_argument(
+        "--set",
+        metavar="KEY=VALUE",
+        action="append",
+        help="Set a config value (e.g. --set verbose=true --set max_improvements=3).",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="%(prog)s 0.1.0",
@@ -238,6 +244,18 @@ def main() -> int:
 
     args = parse_args()
     ensure_data_dir()
+
+    # -- Set config values --
+    if args.set:
+        for pair in args.set:
+            if "=" not in pair:
+                print(f"  Invalid format: {pair} (use KEY=VALUE)")
+                return 1
+            key, raw = pair.split("=", 1)
+            save_setting(key.strip(), _parse_scalar(raw))
+            print(f"  {key.strip()} = {_parse_scalar(raw)}")
+        print("  Config updated.")
+        return 0
 
     prefs = _load_prefs()
 
