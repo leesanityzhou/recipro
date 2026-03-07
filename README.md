@@ -62,15 +62,16 @@ Press Enter with no input for a general code scan (finds bugs, security issues, 
 ## How it works
 
 ```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Planner │ ──▶ │ Builder │ ──▶ │ Critic  │ ──▶ │ Builder │
-│ (Claude)│     │         │     │         │     │ Push PR │
-│ Scan &  │     │ Implement│    │ Review  │     │ Lint,   │
-│ plan    │     │ changes │  ◀──│ findings│     │ test,   │
-│ tasks   │     │         │     │         │     │ commit  │
-└─────────┘     └────┬────┘     └─────────┘     └─────────┘
-                     │              │
-                     └──── loop ────┘
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Planner │ ──▶ │ Builder │ ──▶ │ Critic  │ ──▶ │ Builder │ ──▶ │ Builder │
+│ (Claude)│     │         │     │         │     │ Verify  │     │ Push PR │
+│ Scan &  │     │ Implement│    │ Review  │     │ Lint &  │     │ Branch, │
+│ plan    │     │ changes │  ◀──│ findings│  ◀──│ test    │     │ commit, │
+│ tasks   │     │         │     │         │     │         │     │ push    │
+└─────────┘     └────┬────┘     └─────────┘     └────┬────┘     └─────────┘
+                     │              │                  │
+                     └──── loop ────┘     fix failures │
+                                          └────────────┘
                                         ┌──────────┐
                   Observing all of ───▶  │ Ambient  │
                   the above              │ Agent    │
@@ -81,11 +82,10 @@ Press Enter with no input for a general code scan (finds bugs, security issues, 
 
 1. **Planner** (Claude) — scans the repo and breaks the directive into concrete tasks
 2. **Builder** (Claude or Codex) — implements each task
-3. **Critic** (Claude or Codex) — reviews changes, sends findings back to Builder
-4. **Builder** again — runs lint/tests, creates branch, commits, pushes, opens PR
-5. **Ambient Agent** (GPT or Gemini) — monitors agent output in the background, provides status updates, cost tracking, and anomaly detection
-
-Builder and Critic loop until the code passes review. No arbitrary caps.
+3. **Critic** (Claude or Codex) — reviews changes, sends findings back to Builder (loops until pass)
+4. **Builder** — runs lint and tests; if anything fails, fixes and re-runs (loops until pass)
+5. **Builder** — creates branch, commits, pushes, opens PR
+6. **Ambient Agent** (GPT or Gemini) — monitors all agent output in the background, provides status updates, cost tracking, and anomaly detection
 
 ## Features
 
