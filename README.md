@@ -38,10 +38,9 @@ pip install recipro
 
 - Python 3.11+
 - `claude` CLI — `npm install -g @anthropic-ai/claude-code` then `claude login`
-- `codex` CLI — `npm install -g @openai/codex` (if using Codex as builder/critic)
+- `codex` CLI — `npm install -g @openai/codex` then `codex login` (if using Codex as builder/critic)
 - `git` and `gh` (GitHub CLI, for PR creation)
-- `OPENAI_API_KEY` env var (for Codex backend and/or ambient agent)
-- `GEMINI_API_KEY` env var (optional, alternative for ambient agent)
+- `OPENAI_API_KEY` or `GEMINI_API_KEY` env var (optional, enables the ambient supervisor agent)
 
 ## Quick start
 
