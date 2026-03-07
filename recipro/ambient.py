@@ -11,18 +11,25 @@ import urllib.request
 from typing import Any
 
 _agent: AmbientAgent | None = None
+_verbose: bool = False
 
 
 def get_agent() -> AmbientAgent | None:
     return _agent
 
 
+def is_verbose() -> bool:
+    return _verbose
+
+
 def init_agent(
     provider: str | None = None,
     model: str | None = None,
     focus: str | None = None,
+    verbose: bool = False,
 ) -> AmbientAgent:
-    global _agent
+    global _agent, _verbose
+    _verbose = verbose
     _agent = AmbientAgent(provider=provider, model=model, focus=focus)
     return _agent
 

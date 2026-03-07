@@ -143,21 +143,24 @@ def run_command(
         if input_text and proc.stdin:
             proc.stdin.write(input_text)
             proc.stdin.close()
-        from .ambient import get_agent
+        from .ambient import get_agent, is_verbose
         ambient = get_agent()
+        verbose = is_verbose()
         stdout_lines: list[str] = []
         for line in proc.stdout:
             stdout_lines.append(line)
             if stream_filter:
                 filtered = stream_filter(line, filter_state)
                 if filtered:
-                    sys.stderr.write(filtered)
-                    sys.stderr.flush()
+                    if verbose:
+                        sys.stderr.write(filtered)
+                        sys.stderr.flush()
                     if ambient and ambient.available:
                         ambient.add(filtered)
             else:
-                sys.stderr.write(line)
-                sys.stderr.flush()
+                if verbose:
+                    sys.stderr.write(line)
+                    sys.stderr.flush()
                 if ambient and ambient.available:
                     ambient.add(line)
         proc.wait()

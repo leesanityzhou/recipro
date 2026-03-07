@@ -10,6 +10,7 @@ DEFAULT_SETTINGS = {
     "max_improvements": 1,
     "require_clean_worktree": True,
     "auto_merge": False,
+    "verbose": False,
 }
 
 
@@ -60,7 +61,8 @@ def ensure_data_dir() -> None:
         config_path.write_text(
             "max_improvements: 1\n"
             "require_clean_worktree: true\n"
-            "auto_merge: false\n",
+            "auto_merge: false\n"
+            "verbose: false\n",
             encoding="utf-8",
         )
 
@@ -80,6 +82,7 @@ class AppConfig:
     dry_run: bool = False
     require_clean_worktree: bool = True
     auto_merge: bool = False
+    verbose: bool = False
 
     @property
     def report_dir(self) -> Path:
