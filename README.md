@@ -45,7 +45,6 @@ Preferences persist — subsequent runs only ask for the focus directive.
 recipro                # Normal run: setup (if first time) → focus → execute
 recipro --dry-run      # Plan only, no repo changes
 recipro --reconfigure  # Re-do setup (change repo, backends, models)
-recipro --no-select    # Skip all prompts, use saved preferences
 recipro --clean        # Reset target repo: discard changes, switch to default branch, delete task branches
 ```
 
