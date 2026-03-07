@@ -281,7 +281,6 @@ def main() -> int:
     # -- Clean command --
     if args.clean:
         from .core.git_tools import GitRepo
-        from .config import AppConfig
         repo_path = Path(prefs["repo_path"]).expanduser().resolve()
         config = AppConfig(
             repo_path=repo_path, focus=None, max_improvements=1,
