@@ -8,7 +8,7 @@ from ..ambient import get_agent as get_ambient
 from ..backends import create_backend
 from ..config import AppConfig
 from ..models import ImplementationResult, ImprovementTask, ReviewResult, TaskOutcome
-from ..prompts import implement_prompt, push_pr_prompt, review_prompt, scan_prompt
+from ..prompts import implement_prompt, push_pr_prompt, review_prompt, scan_prompt, verify_prompt
 from ..reporting import build_report_markdown, write_report
 from ..state import append_run
 from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, run_command
@@ -27,6 +27,8 @@ REVIEW_SCHEMA = {
     },
     "additionalProperties": False,
 }
+
+MAX_VERIFY_ROUNDS = 5
 
 class Orchestrator:
     def __init__(self, config: AppConfig):
@@ -197,9 +199,32 @@ class Orchestrator:
                 if not feedback:
                     raise RuntimeError("Critic returned fail without concrete findings.")
 
+            # Verify: run lint/tests, loop back to builder on failure
+            test_feedback: list[str] = []
+            for verify_round in range(1, MAX_VERIFY_ROUNDS + 1):
+                log.info("  Verify round %d: running lint/tests...", verify_round)
+                vp = verify_prompt(task, test_feedback)
+                verify_text = self.builder.exec_text(vp, self.config.repo_path, editable=True)
+                ambient = get_ambient()
+                if ambient:
+                    ambient.track_cost("builder", self.builder.model, len(vp), len(verify_text))
+                try:
+                    vp_payload = extract_json_value(verify_text)
+                    if isinstance(vp_payload, dict) and vp_payload.get("status") == "pass":
+                        log.info("  Lint/tests passed!")
+                        break
+                    failures = vp_payload.get("failures", []) if isinstance(vp_payload, dict) else []
+                    test_feedback = failures if failures else [vp_payload.get("summary", "Tests failed")]
+                    log.info("  Lint/tests failed (%d issue(s)), sending back to builder...", len(test_feedback))
+                except ValueError:
+                    test_feedback = ["Could not determine test results, please re-run tests"]
+                    log.info("  Could not parse verify result, retrying...")
+            else:
+                log.warning("  Lint/tests did not pass after %d rounds, proceeding anyway.", MAX_VERIFY_ROUNDS)
+
             outcome.changed_files = self.git.changed_files()
 
-            # Let builder handle branch, commit, lint, test, push, PR
+            # Push PR (lint/tests already handled above)
             log.info("  %s pushing PR...", self.builder.name)
             pr_prompt_text = push_pr_prompt(task, outcome.summary, outcome.changed_files, auto_merge=self.config.auto_merge)
             pr_text = self.builder.exec_text(

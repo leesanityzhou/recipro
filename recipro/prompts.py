@@ -157,12 +157,39 @@ Use "pass" only when there are no material findings left to fix before commit.
 """.strip()
 
 
-def push_pr_prompt(task: ImprovementTask, summary: str, changed_files: list[str], *, auto_merge: bool = False) -> str:
-    files_block = "\n".join(f"- {f}" for f in changed_files) if changed_files else "- (check git status)"
-    merge_step = "\n7. Merge the PR using `gh pr merge --squash --delete-branch`." if auto_merge else ""
+def verify_prompt(task: ImprovementTask, feedback: list[str]) -> str:
+    feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
     return f"""
 You are the builder agent in Recipro. The implementation has been reviewed and approved.
-Now finalize and ship it as a pull request.
+Before shipping, you must verify the code passes all checks.
+
+Task: {task.title}
+
+Previous test/lint failures to fix:
+{feedback_block}
+
+Steps:
+1. If there are failures listed above, fix them first.
+2. Run linting and formatting checks if the project has them configured (e.g. ruff, eslint, black, prettier). Fix any issues.
+3. Run the full test suite if the project has one (e.g. pytest, jest). Fix any failures.
+
+Return strict JSON only:
+{{
+  "status": "pass" or "fail",
+  "summary": "what you did",
+  "failures": ["description of failure 1", "description of failure 2"]
+}}
+
+Use "pass" only when all lint checks and tests pass (or the project has none configured).
+""".strip()
+
+
+def push_pr_prompt(task: ImprovementTask, summary: str, changed_files: list[str], *, auto_merge: bool = False) -> str:
+    files_block = "\n".join(f"- {f}" for f in changed_files) if changed_files else "- (check git status)"
+    merge_step = "\n5. Merge the PR using `gh pr merge --squash --delete-branch`." if auto_merge else ""
+    return f"""
+You are the builder agent in Recipro. The implementation has been reviewed, tested, and approved.
+Now ship it as a pull request.
 
 Task: {task.title}
 Description: {task.description}
@@ -172,20 +199,18 @@ Changed files:
 {files_block}
 
 Steps to follow in order:
-1. Run linting and formatting checks if the project has them configured (e.g. ruff, eslint, black, prettier).
-2. Run unit tests if the project has them (e.g. pytest, jest). Fix any failures.
-3. Create a new git branch with a clear, descriptive name.
-4. Stage and commit all changes with a good commit message.
-5. Push the branch to origin.
-6. Create a pull request using `gh pr create` with a clear title and description.{merge_step}
+1. Create a new git branch with a clear, descriptive name.
+2. Stage and commit all changes with a good commit message.
+3. Push the branch to origin.
+4. Create a pull request using `gh pr create` with a clear title and description.{merge_step}
+
+Do NOT run tests or lint — they have already passed.
 
 Return strict JSON only:
 {{
   "pr_url": "the full URL of the created PR",
   "branch_name": "the branch name you used",
   "commit_message": "the commit message you used",
-  "lint_passed": true,
-  "tests_passed": true,
   "merged": {"true" if auto_merge else "false"}
 }}
 """.strip()
