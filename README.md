@@ -5,7 +5,7 @@ Autonomous multi-agent code improvement. Point it at a repo, tell it what to do,
 ## Install
 
 ```bash
-pip install recipro
+pip install recipro-ai
 ```
 
 ### Prerequisites
