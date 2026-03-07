@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import re
 
+import logging
+
 from ..config import AppConfig
-from ..utils import dedupe_strings, run_command, slugify
+from ..utils import CommandError, dedupe_strings, run_command, slugify
+
+log = logging.getLogger("recipro")
 
 
 class GitRepo:
@@ -11,14 +15,48 @@ class GitRepo:
         self.config = config
         self.repo_path = config.repo_path
 
-    def assert_repo_exists(self) -> None:
+    def is_git_repo(self) -> bool:
         result = run_command(
             ["git", "rev-parse", "--is-inside-work-tree"],
             cwd=self.repo_path,
             check=False,
         )
-        if result.returncode != 0 or result.stdout.strip() != "true":
-            raise RuntimeError(f"Target repo is not a git repository: {self.repo_path}")
+        return result.returncode == 0 and result.stdout.strip() == "true"
+
+    def has_remote(self) -> bool:
+        result = run_command(
+            ["git", "remote"],
+            cwd=self.repo_path,
+            check=False,
+        )
+        return bool(result.stdout.strip())
+
+    def ensure_repo_exists(self) -> None:
+        """If not a git repo, init + initial commit + create GitHub remote."""
+        if self.is_git_repo():
+            return
+
+        repo_name = self.repo_path.name
+        log.info("No git repo found. Initializing %s...", repo_name)
+
+        run_command(["git", "init"], cwd=self.repo_path, check=True)
+        run_command(["git", "add", "."], cwd=self.repo_path, check=True)
+        run_command(
+            ["git", "commit", "-m", "Initial commit"],
+            cwd=self.repo_path,
+            check=True,
+        )
+
+        log.info("Creating GitHub repository: %s", repo_name)
+        try:
+            run_command(
+                ["gh", "repo", "create", repo_name, "--private", "--source", ".", "--push"],
+                cwd=self.repo_path,
+                check=True,
+            )
+            log.info("GitHub repo created and pushed.")
+        except CommandError:
+            log.warning("Could not create GitHub repo (gh not configured?). Continuing with local repo only.")
 
     def current_ref(self) -> str:
         result = run_command(

@@ -288,7 +288,9 @@ def main() -> int:
             builder_backend="claude", builder_model=None,
         )
         git = GitRepo(config)
-        git.assert_repo_exists()
+        if not git.is_git_repo():
+            print("  Not a git repository, nothing to clean.")
+            return 0
         print(f"Cleaning target repo: {repo_path}")
         result = git.clean_worktree()
         if result["discarded"]:

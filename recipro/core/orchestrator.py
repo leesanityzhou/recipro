@@ -92,12 +92,12 @@ class Orchestrator:
         if not repo_path.exists():
             raise FileNotFoundError(f"Target repo does not exist: {repo_path}")
 
-        self.git.assert_repo_exists()
+        self.git.ensure_repo_exists()
 
         if self.config.require_clean_worktree and not self.config.dry_run:
             self.git.ensure_clean_worktree()
 
-        if not self.config.dry_run:
+        if not self.config.dry_run and self.git.has_remote():
             log.info("Pulling latest changes from remote...")
             try:
                 self.git.pull()
