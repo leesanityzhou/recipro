@@ -293,7 +293,6 @@ def main() -> int:
         builder_model=prefs.get("builder_model"),
         dry_run=args.dry_run,
         require_clean_worktree=bool(settings.get("require_clean_worktree", True)),
-        summarize_report=bool(settings.get("summarize_report", True)),
         auto_merge=bool(settings.get("auto_merge", False)),
     )
 

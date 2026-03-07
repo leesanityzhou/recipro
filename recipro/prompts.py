@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from .models import ImprovementTask, TaskOutcome
+from .models import ImprovementTask
 
 
 def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
@@ -154,30 +154,6 @@ Return strict JSON only:
 }
 
 Use "pass" only when there are no material findings left to fix before commit.
-""".strip()
-
-
-def report_prompt(outcomes: list[TaskOutcome], repo_path: str, run_date: str) -> str:
-    payload = [outcome.to_dict() for outcome in outcomes]
-    return f"""
-You are summarizing a Recipro run.
-
-Repository:
-{repo_path}
-
-Date:
-{run_date}
-
-Task outcomes JSON:
-{json.dumps(payload, ensure_ascii=False, indent=2)}
-
-Return strict JSON only:
-{{
-  "improvements_completed": ["..."],
-  "files_changed": ["..."],
-  "risks": ["..."],
-  "manual_actions_required": ["..."]
-}}
 """.strip()
 
 

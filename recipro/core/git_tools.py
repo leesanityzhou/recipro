@@ -38,6 +38,14 @@ class GitRepo:
             check=True,
         ).stdout.strip()
 
+    def pull(self) -> None:
+        """Pull latest changes from remote."""
+        run_command(
+            ["git", "pull", "--ff-only"],
+            cwd=self.repo_path,
+            check=True,
+        )
+
     def ensure_clean_worktree(self) -> None:
         status = self.status_lines()
         if status:
@@ -125,11 +133,5 @@ class GitRepo:
         return result.stdout.strip().splitlines()[-1].strip()
 
     def merge_pr(self, pr_ref: str) -> None:
-        mode = self.config.github_merge_mode.lower()
-        if mode not in {"merge", "rebase", "squash"}:
-            raise RuntimeError(f"Unsupported github_merge_mode: {self.config.github_merge_mode}")
-
-        command = ["gh", "pr", "merge", pr_ref, f"--{mode}"]
-        if self.config.github_auto_merge:
-            command.append("--auto")
+        command = ["gh", "pr", "merge", pr_ref, "--squash"]
         run_command(command, cwd=self.repo_path, check=True)

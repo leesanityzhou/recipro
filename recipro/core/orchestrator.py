@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from ..ambient import get_agent as get_ambient
 from ..backends import create_backend
 from ..config import AppConfig
 from ..models import ImplementationResult, ImprovementTask, ReviewResult, TaskOutcome
-from ..prompts import implement_prompt, push_pr_prompt, report_prompt, review_prompt, scan_prompt
+from ..prompts import implement_prompt, push_pr_prompt, review_prompt, scan_prompt
 from ..reporting import build_report_markdown, write_report
 from ..state import append_run
 from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, run_command
@@ -27,19 +27,6 @@ REVIEW_SCHEMA = {
     },
     "additionalProperties": False,
 }
-
-REPORT_SCHEMA = {
-    "type": "object",
-    "required": ["improvements_completed", "files_changed", "risks", "manual_actions_required"],
-    "properties": {
-        "improvements_completed": {"type": "array", "items": {"type": "string"}},
-        "files_changed": {"type": "array", "items": {"type": "string"}},
-        "risks": {"type": "array", "items": {"type": "string"}},
-        "manual_actions_required": {"type": "array", "items": {"type": "string"}},
-    },
-    "additionalProperties": False,
-}
-
 
 class Orchestrator:
     def __init__(self, config: AppConfig):
@@ -107,6 +94,13 @@ class Orchestrator:
 
         if self.config.require_clean_worktree and not self.config.dry_run:
             self.git.ensure_clean_worktree()
+
+        if not self.config.dry_run:
+            log.info("Pulling latest changes from remote...")
+            try:
+                self.git.pull()
+            except CommandError:
+                log.warning("git pull failed (no remote or diverged history), continuing with local HEAD")
 
         log.info("Planning improvements with Claude (plan mode): %s", repo_path)
         tasks = self._plan_tasks()
@@ -233,28 +227,22 @@ class Orchestrator:
 
     def _finalize(self, started_at: datetime, outcomes: list[TaskOutcome]) -> tuple[Path, list[TaskOutcome]]:
         log.info("Finalizing run and generating report...")
-        run_date = date.today()
+        finished_at = datetime.utcnow()
         markdown = build_report_markdown(
-            run_date=run_date,
+            started_at=started_at,
+            finished_at=finished_at,
             repo_path=self.config.repo_path,
             outcomes=outcomes,
             dry_run=self.config.dry_run,
+            focus=self.config.focus,
         )
 
-        if self.config.summarize_report and outcomes:
-            try:
-                prompt = report_prompt(outcomes, str(self.config.repo_path), run_date.isoformat())
-                summary = self.critic.exec_json(prompt, REPORT_SCHEMA, self.config.repo_path)
-                markdown = self._render_summary(run_date, summary)
-            except Exception:
-                pass
-
-        report_path = write_report(self.config, run_date, markdown)
+        report_path = write_report(self.config, started_at, markdown)
         append_run(
             self.config.state_path,
             {
                 "started_at": started_at.isoformat(timespec="seconds") + "Z",
-                "finished_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                "finished_at": finished_at.isoformat(timespec="seconds") + "Z",
                 "repo_path": str(self.config.repo_path),
                 "dry_run": self.config.dry_run,
                 "report_path": str(report_path),
@@ -262,21 +250,3 @@ class Orchestrator:
             },
         )
         return report_path, outcomes
-
-    def _render_summary(self, run_date: date, summary: dict[str, list[str]]) -> str:
-        sections = [
-            ("Improvements Completed", summary.get("improvements_completed", [])),
-            ("Files Changed", summary.get("files_changed", [])),
-            ("Risks", summary.get("risks", [])),
-            ("Manual Actions Required", summary.get("manual_actions_required", [])),
-        ]
-        lines = [f"# Recipro Report - {run_date.isoformat()}", ""]
-        for title, items in sections:
-            lines.append(f"# {title}")
-            lines.append("")
-            if items:
-                lines.extend(f"- {item}" for item in items)
-            else:
-                lines.append("- None")
-            lines.append("")
-        return "\n".join(lines).strip() + "\n"

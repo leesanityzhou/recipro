@@ -94,7 +94,6 @@ Settings live at `~/.recipro/config.yaml` (auto-created on first run):
 ```yaml
 max_improvements: 1            # Tasks per run
 require_clean_worktree: true   # Require clean git state before run
-summarize_report: true         # Generate AI summary in report
 auto_merge: false              # Auto squash-merge PRs after creation
 ```
 

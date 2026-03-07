@@ -9,7 +9,6 @@ DATA_DIR = Path.home() / ".recipro"
 DEFAULT_SETTINGS = {
     "max_improvements": 1,
     "require_clean_worktree": True,
-    "summarize_report": True,
     "auto_merge": False,
 }
 
@@ -61,7 +60,6 @@ def ensure_data_dir() -> None:
         config_path.write_text(
             "max_improvements: 1\n"
             "require_clean_worktree: true\n"
-            "summarize_report: true\n"
             "auto_merge: false\n",
             encoding="utf-8",
         )
@@ -81,7 +79,6 @@ class AppConfig:
 
     dry_run: bool = False
     require_clean_worktree: bool = True
-    summarize_report: bool = True
     auto_merge: bool = False
 
     @property
