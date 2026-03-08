@@ -145,10 +145,21 @@ Rules:
     def start(self) -> None:
         if not self.available:
             return
+        # Health check: verify API key works before starting the loop
+        success, text = self._call_llm_probe()
+        if not success:
+            sys.stderr.write("\033[33m[ambient] Narrator disabled: API health check failed on startup.\033[0m\n")
+            self._disabled = True
+            return
+        sys.stderr.write(f"\033[36m[narrator] Online — using {self.provider}/{self.model}\033[0m\n")
         self._start_time = time.time()
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+
+    def _call_llm_probe(self) -> tuple[bool, str]:
+        """Minimal API call to verify connectivity and auth."""
+        return self._ask_llm(["[STAGE] Health check: narrator starting up"])
 
     def stop(self) -> None:
         self._running = False
