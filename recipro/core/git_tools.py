@@ -102,6 +102,34 @@ class GitRepo:
     def has_changes(self) -> bool:
         return bool(self.status_lines())
 
+    def diff(self) -> str:
+        """Return unified diff of all uncommitted changes (staged + unstaged + untracked)."""
+        # Staged + unstaged
+        result = run_command(
+            ["git", "diff", "HEAD"],
+            cwd=self.repo_path,
+            check=False,
+        )
+        diff_text = result.stdout
+
+        # Untracked files: show their content too
+        for line in self.status_lines():
+            if line.startswith("??"):
+                path = line[3:].strip()
+                try:
+                    content = (self.repo_path / path).read_text(encoding="utf-8", errors="replace")
+                    diff_text += f"\n--- /dev/null\n+++ b/{path}\n"
+                    for ln in content.splitlines():
+                        diff_text += f"+{ln}\n"
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+        # Truncate if too large to avoid blowing up context
+        max_chars = 50_000
+        if len(diff_text) > max_chars:
+            diff_text = diff_text[:max_chars] + "\n\n... (diff truncated, too large to show in full)"
+        return diff_text
+
     def create_branch(self, title: str, start_point: str) -> str:
         base_name = f"recipro/{slugify(title)}"
         branch_name = base_name

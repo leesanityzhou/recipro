@@ -64,9 +64,22 @@ def implement_prompt(
     task: ImprovementTask,
     *,
     feedback: list[str],
+    diff: str = "",
 ) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
     files_block = "\n".join(f"- {item}" for item in task.files) if task.files else "- Unknown"
+
+    diff_block = ""
+    if diff:
+        diff_block = f"""
+Your previous changes (still in the working tree):
+```
+{diff}
+```
+
+The critic reviewed these changes and found issues. Fix the issues listed in the feedback below. You may modify, extend, or rewrite your previous changes as needed.
+"""
+
     return f"""
 You are the builder agent in Recipro.
 
@@ -83,7 +96,7 @@ Likely files:
 
 Expected change:
 {task.expected_change or "Not specified."}
-
+{diff_block}
 Feedback to address this round:
 {feedback_block}
 
@@ -105,7 +118,7 @@ After editing the repository, return strict JSON only:
 """.strip()
 
 
-def review_prompt(focus: str | None = None) -> str:
+def review_prompt(focus: str | None, diff: str) -> str:
     if focus:
         return f"""
 You are the critic agent in Recipro.
@@ -113,7 +126,12 @@ You are the critic agent in Recipro.
 The user gave the following directive:
 {focus}
 
-A builder agent has made changes to the repository to fulfill this directive. Review the changes against HEAD.
+A builder agent has made the following changes to the repository. Review them carefully.
+
+Diff:
+```
+{diff}
+```
 
 Your job is to ensure the user's intent has been fully and correctly implemented. Check:
 - Does the implementation actually address what the user asked for?
@@ -133,10 +151,17 @@ Return strict JSON only:
 Use "pass" only when the directive is fully and correctly implemented.
 """.strip()
 
-    return """
+    return f"""
 You are the critic agent in Recipro.
 
-Review the current repository changes against HEAD. Focus only on material issues:
+A builder agent has made the following changes to the repository. Review them carefully.
+
+Diff:
+```
+{diff}
+```
+
+Focus only on material issues:
 - correctness bugs
 - regressions
 - unsafe behavior
@@ -146,12 +171,12 @@ Review the current repository changes against HEAD. Focus only on material issue
 Ignore style-only nitpicks.
 
 Return strict JSON only:
-{
+{{
   "status": "pass" or "fail",
   "summary": "short explanation",
   "findings": ["concrete fix 1", "concrete fix 2"],
   "manual_actions": []
-}
+}}
 
 Use "pass" only when there are no material findings left to fix before commit.
 """.strip()

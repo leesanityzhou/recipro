@@ -148,7 +148,8 @@ class Orchestrator:
                 review_round += 1
                 log.info("  Round %d: %s implementing...", review_round, self.builder.name)
 
-                prompt = implement_prompt(task, feedback=feedback)
+                current_diff = self.git.diff() if feedback else ""
+                prompt = implement_prompt(task, feedback=feedback, diff=current_diff)
                 result_text = self.builder.exec_text(
                     prompt, self.config.repo_path, editable=True,
                 )
@@ -178,7 +179,8 @@ class Orchestrator:
                     )
 
                 log.info("  Round %d: %s reviewing changes...", review_round, self.critic.name)
-                review_prompt_text = review_prompt(self.config.focus)
+                review_diff = self.git.diff()
+                review_prompt_text = review_prompt(self.config.focus, review_diff)
                 review_payload = self.critic.exec_json(
                     review_prompt_text, REVIEW_SCHEMA, self.config.repo_path,
                 )
