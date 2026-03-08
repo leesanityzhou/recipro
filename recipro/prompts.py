@@ -11,6 +11,11 @@ def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
             {
                 "title": "Short improvement title",
                 "description": "Why this matters and exactly what should change.",
+                "steps": [
+                    "Step 1: Do X in file A",
+                    "Step 2: Do Y in file B",
+                    "Step 3: Update tests to cover the change",
+                ],
                 "files": ["path/to/file.py"],
                 "expected_change": "One-sentence expected outcome.",
                 "manual_actions": [],
@@ -40,6 +45,8 @@ User directive:
 
 Inspect the repository in the current working directory. Break the directive down into actionable improvement tasks. Each task should be specific enough for another agent to implement without further clarification.
 
+The "steps" field is the most important part — it is the implementation plan that a builder agent will follow step by step. Each step should be concrete and actionable (e.g. "Add auth dependency to endpoint X in file Y", not "Add authentication"). Read the relevant source files to produce precise steps.
+
 Return strict JSON only, matching this shape:
 {json_shape}
 """.strip()
@@ -66,6 +73,8 @@ Hard constraints:
 - prefer tasks that another agent can complete locally without outside systems
 - touch as many files as needed to do the job correctly
 
+The "steps" field is the most important part — it is the implementation plan that a builder agent will follow step by step. Each step should be concrete and actionable (e.g. "Add bounds check before array access in function X", not "Fix unsafe indexing"). Read the relevant source files to produce precise steps.
+
 Return strict JSON only, matching this shape:
 {json_shape}
 """.strip()
@@ -77,6 +86,7 @@ def implement_prompt(
     feedback: list[str],
 ) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
+    steps_block = "\n".join(f"{i}. {s}" for i, s in enumerate(task.steps, 1)) if task.steps else "- No specific steps provided, use your judgment."
     files_block = "\n".join(f"- {item}" for item in task.files) if task.files else "- Unknown"
     return f"""
 You are the builder agent in Recipro.
@@ -88,6 +98,9 @@ Title:
 
 Description:
 {task.description}
+
+Implementation steps (follow in order):
+{steps_block}
 
 Likely files:
 {files_block}

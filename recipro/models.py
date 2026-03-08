@@ -20,6 +20,7 @@ def _string_list(value: Any) -> list[str]:
 class ImprovementTask:
     title: str
     description: str
+    steps: list[str] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     expected_change: str = ""
     manual_actions: list[str] = field(default_factory=list)
@@ -29,6 +30,7 @@ class ImprovementTask:
         return cls(
             title=str(data.get("title", "")).strip(),
             description=str(data.get("description", "")).strip(),
+            steps=_string_list(data.get("steps")),
             files=_string_list(data.get("files")),
             expected_change=str(data.get("expected_change", "")).strip(),
             manual_actions=_string_list(data.get("manual_actions")),
