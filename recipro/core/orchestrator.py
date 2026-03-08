@@ -109,6 +109,10 @@ class Orchestrator:
         log.info("Planner found %d improvement task(s)", len(tasks))
         for i, task in enumerate(tasks, 1):
             log.info("  [%d] %s", i, task.title)
+        ambient = get_ambient()
+        if ambient:
+            details = "\n".join(f"- {t.title}: {t.description}" for t in tasks)
+            ambient.stage(f"Plan ready. Tasks:\n{details}")
 
         outcomes: list[TaskOutcome] = []
 
@@ -149,6 +153,11 @@ class Orchestrator:
                 log.info("  Round %d: %s implementing...", review_round, self.builder.name)
 
                 is_retry = review_round > 1
+                if is_retry:
+                    ambient = get_ambient()
+                    if ambient:
+                        findings_detail = "\n".join(f"  - {f}" for f in feedback)
+                        ambient.stage(f"Builder is reworking based on critic feedback:\n{findings_detail}")
                 prompt = implement_prompt(task, feedback=feedback)
                 result_text = self.builder.exec_text(
                     prompt, self.config.repo_path, editable=True,
@@ -180,6 +189,10 @@ class Orchestrator:
                     )
 
                 log.info("  Round %d: %s reviewing changes...", review_round, self.critic.name)
+                ambient = get_ambient()
+                if ambient:
+                    files = ", ".join(implementation.changed_files) if implementation.changed_files else "unknown files"
+                    ambient.stage(f"Implementation done: {implementation.summary}\nChanged: {files}")
                 review_prompt_text = review_prompt(self.config.focus)
                 review_payload = self.critic.exec_json(
                     review_prompt_text, REVIEW_SCHEMA, self.config.repo_path,
@@ -194,9 +207,16 @@ class Orchestrator:
 
                 if review.status == "pass":
                     log.info("  Review passed!")
+                    ambient = get_ambient()
+                    if ambient:
+                        ambient.stage(f"Critic approved: {review.summary}")
                     break
 
                 log.info("  Review failed (%d finding(s)), iterating...", len(review.findings))
+                ambient = get_ambient()
+                if ambient:
+                    findings_detail = "\n".join(f"  - {f}" for f in review.findings)
+                    ambient.stage(f"Critic rejected. Issues found:\n{findings_detail}")
                 feedback = review.findings
                 if not feedback:
                     raise RuntimeError("Critic returned fail without concrete findings.")
@@ -248,6 +268,10 @@ class Orchestrator:
             outcome.status = "completed"
             if outcome.pr_url:
                 log.info("  PR created: %s", outcome.pr_url)
+                ambient = get_ambient()
+                if ambient:
+                    changed = ", ".join(outcome.changed_files[:5]) if outcome.changed_files else "unknown"
+                    ambient.stage(f"PR shipped: {outcome.pr_url}\nFiles touched: {changed}\nRounds: {outcome.review_rounds}")
             return outcome
         except (RuntimeError, CommandError) as error:
             outcome.error = str(error)

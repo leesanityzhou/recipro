@@ -80,7 +80,7 @@ def _estimate_tokens(text: str) -> int:
 
 
 class AmbientAgent:
-    SYSTEM_PROMPT = """You are the supervisor/narrator for Recipro, a multi-agent code improvement tool.
+    SYSTEM_PROMPT = """You are the narrator for Recipro, a multi-agent code improvement tool.
 
 Recipro's pipeline:
 1. Planner (Claude) — reads the repo, creates improvement tasks
@@ -88,24 +88,26 @@ Recipro's pipeline:
 3. Critic — reviews the changes (code review)
 4. Builder — runs lint/tests, commits, pushes PR
 
-You receive raw agent outputs (NOT shown to the user). The user only sees mechanical stage logs. Your job: monitor agent behavior and give the user intelligent, concise status updates.
+You receive a mix of stage events (marked with [STAGE]) and raw agent outputs. The user only sees mechanical stage logs. Your job: give the user a brief, informative status update every time you are called.
 
-Watch for and report:
-- What the agent is actually doing (summarize its actions, not raw output)
-- Anomalies: agent stuck in a loop, repeating itself, contradicting itself
-- Quality concerns: agent skipping important steps, making questionable decisions
-- Progress milestones: meaningful completions, key findings
+ALWAYS provide an update. Summarize what is happening right now:
+- What the agent is working on or just finished
+- Any interesting decisions the agent is making
+- Problems or anomalies you notice
 
 Rules:
-- 1-2 sentences max per update
-- Skip noise: file paths, CLI flags, raw JSON, tool call details
+- 1-2 sentences max
 - Plain language, no jargon
-- Don't repeat what you already said
-- If nothing notable happened, respond with empty string"""
+- Don't repeat your last update verbatim
+- Never return an empty response — there is always something to say about what's happening"""
 
-    FLUSH_INTERVAL = 20
-    MIN_BUFFER_LINES = 5
+    FLUSH_INTERVAL = 15
+    MIN_BUFFER_LINES = 3
     MAX_FLUSH_INTERVAL = 120
+    MAX_BUFFER_LINES = 400
+    MAX_CONTEXT_LINES = 80
+    MAX_CONTEXT_CHARS = 12_000
+    REQUEST_TIMEOUT = 45
 
     def __init__(
         self,
@@ -156,6 +158,21 @@ Rules:
             return
         with self._lock:
             self._buffer.append(message.strip())
+            if len(self._buffer) > self.MAX_BUFFER_LINES:
+                overflow = len(self._buffer) - self.MAX_BUFFER_LINES
+                self._buffer = (
+                    [f"[ambient] dropped {overflow} older log line(s) due to buffer limits"]
+                    + self._buffer[-self.MAX_BUFFER_LINES + 1 :]
+                )
+
+    def stage(self, event: str) -> None:
+        """Record a high-level stage event (always included, triggers flush).
+
+        Flush runs in a separate thread so it never blocks the orchestrator.
+        """
+        with self._lock:
+            self._buffer.append(f"[STAGE] {event}")
+        threading.Thread(target=self._flush, kwargs={"force": True}, daemon=True).start()
 
     def track_cost(self, role: str, model: str | None, input_chars: int, output_chars: int) -> None:
         """Record an estimated cost for a main agent call."""
@@ -263,17 +280,55 @@ Rules:
             new_messages = self._buffer[:]
             self._buffer.clear()
 
-        response = self._ask_llm(new_messages)
+        success, response = self._ask_llm(new_messages)
+        if not success:
+            with self._lock:
+                self._buffer = new_messages + self._buffer
+                if len(self._buffer) > self.MAX_BUFFER_LINES:
+                    self._buffer = self._buffer[-self.MAX_BUFFER_LINES :]
+            return
+
         if response and response.strip():
             text = response.strip()
             sys.stderr.write(f"\n\033[36m  [narrator] {text}\033[0m\n")
             sys.stderr.flush()
             self._reported.append(text)
 
-    def _maybe_disable(self) -> None:
-        if self._consecutive_failures >= 3:
+    def _record_transient_failure(self, label: str, detail: str) -> None:
+        """Backoff on transient errors (429, timeout) without counting toward disable."""
+        self._current_interval = min(self._current_interval * 2, self.MAX_FLUSH_INTERVAL)
+        sys.stderr.write(f"\033[33m[ambient] {label}: {detail} (backoff to {self._current_interval}s)\033[0m\n")
+
+    def _record_persistent_failure(self, label: str, detail: str) -> None:
+        """Count toward disable on persistent errors (auth, bad model, server error)."""
+        self._consecutive_failures += 1
+        sys.stderr.write(f"\033[33m[ambient] {label}: {detail}\033[0m\n")
+        if self._consecutive_failures >= 5:
             self._disabled = True
-            sys.stderr.write("\033[33m[ambient] Too many API failures, narrator disabled.\033[0m\n")
+            sys.stderr.write("\033[33m[ambient] Too many persistent failures, narrator disabled.\033[0m\n")
+
+    def _truncate_logs(self, logs: list[str]) -> str:
+        if not logs:
+            return ""
+
+        recent_logs = logs[-self.MAX_CONTEXT_LINES :]
+        kept: list[str] = []
+        total_chars = 0
+        truncated = max(0, len(logs) - len(recent_logs))
+
+        for line in reversed(recent_logs):
+            projected = total_chars + len(line) + 1
+            if kept and projected > self.MAX_CONTEXT_CHARS:
+                truncated += 1
+                continue
+            kept.append(line)
+            total_chars = projected
+
+        kept.reverse()
+        body = "\n".join(kept)
+        if truncated:
+            body = f"[ambient] omitted {truncated} older log line(s) for brevity\n{body}"
+        return body
 
     def _build_user_msg(self, new_logs: list[str]) -> str:
         reported_ctx = ""
@@ -282,29 +337,38 @@ Rules:
             reported_ctx = "\n\nYou already told the user:\n" + "\n".join(
                 f"- {r}" for r in recent
             )
+        compact_logs = self._truncate_logs(new_logs)
         return (
             f"{reported_ctx}\n\n"
             f"New agent output:\n"
-            + "\n".join(new_logs)
-            + "\n\nWhat should the user see? (empty if nothing notable)"
+            + compact_logs
+            + "\n\nGive the user a brief status update based on the above."
         )
 
-    def _ask_llm(self, new_logs: list[str]) -> str:
+    def _ask_llm(self, new_logs: list[str]) -> tuple[bool, str]:
         if self.provider == "openai":
             return self._call_openai(self._system_prompt(), self._build_user_msg(new_logs))
         if self.provider == "gemini":
             return self._call_gemini(self._system_prompt(), self._build_user_msg(new_logs))
-        return ""
+        return True, ""
 
     def _call_llm_raw(self, prompt: str) -> str:
         """Single-shot call for summarize etc."""
         if self.provider == "openai":
-            return self._call_openai("You are a helpful assistant.", prompt)
+            success, text = self._call_openai("You are a helpful assistant.", prompt)
+            return text if success else ""
         if self.provider == "gemini":
-            return self._call_gemini("You are a helpful assistant.", prompt)
+            success, text = self._call_gemini("You are a helpful assistant.", prompt)
+            return text if success else ""
         return ""
 
-    def _call_openai(self, system: str, user: str) -> str:
+    def _http_error_details(self, exc: urllib.error.HTTPError) -> str:
+        try:
+            return exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            return ""
+
+    def _call_openai(self, system: str, user: str) -> tuple[bool, str]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": [
@@ -324,7 +388,7 @@ Rules:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=self.REQUEST_TIMEOUT) as resp:
                 result = json.loads(resp.read())
                 self._current_interval = self.FLUSH_INTERVAL
                 self._consecutive_failures = 0
@@ -334,21 +398,25 @@ Rules:
                 self._ambient_tokens["completion"] += usage.get("completion_tokens", 0)
                 choices = result.get("choices", [])
                 if choices:
-                    return choices[0].get("message", {}).get("content", "")
+                    return True, choices[0].get("message", {}).get("content", "")
+                return True, ""
         except urllib.error.HTTPError as exc:
-            self._consecutive_failures += 1
             if exc.code == 429:
-                self._current_interval = min(self._current_interval * 2, self.MAX_FLUSH_INTERVAL)
+                self._record_transient_failure("OpenAI rate limited", str(exc))
+            elif exc.code in (401, 403):
+                self._disabled = True
+                sys.stderr.write(f"\033[33m[ambient] OpenAI auth error ({exc.code}), narrator disabled.\033[0m\n")
             else:
-                sys.stderr.write(f"\033[33m[ambient] OpenAI error: {exc}\033[0m\n")
-            self._maybe_disable()
+                details = self._http_error_details(exc)
+                suffix = f" {details}" if details else ""
+                self._record_persistent_failure("OpenAI error", f"{exc}{suffix}")
+        except (TimeoutError, urllib.error.URLError):
+            self._record_transient_failure("OpenAI timeout", "request timed out")
         except Exception as exc:
-            self._consecutive_failures += 1
-            sys.stderr.write(f"\033[33m[ambient] OpenAI error: {exc}\033[0m\n")
-            self._maybe_disable()
-        return ""
+            self._record_persistent_failure("OpenAI error", str(exc))
+        return False, ""
 
-    def _call_gemini(self, system: str, user: str) -> str:
+    def _call_gemini(self, system: str, user: str) -> tuple[bool, str]:
         prompt = f"{system}\n{user}"
         payload: dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
@@ -362,7 +430,7 @@ Rules:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=self.REQUEST_TIMEOUT) as resp:
                 result = json.loads(resp.read())
                 self._current_interval = self.FLUSH_INTERVAL
                 self._consecutive_failures = 0
@@ -374,16 +442,20 @@ Rules:
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if parts:
-                        return parts[0].get("text", "")
+                        return True, parts[0].get("text", "")
+                return True, ""
         except urllib.error.HTTPError as exc:
-            self._consecutive_failures += 1
             if exc.code == 429:
-                self._current_interval = min(self._current_interval * 2, self.MAX_FLUSH_INTERVAL)
+                self._record_transient_failure("Gemini rate limited", str(exc))
+            elif exc.code in (401, 403):
+                self._disabled = True
+                sys.stderr.write(f"\033[33m[ambient] Gemini auth error ({exc.code}), narrator disabled.\033[0m\n")
             else:
-                sys.stderr.write(f"\033[33m[ambient] Gemini error: {exc}\033[0m\n")
-            self._maybe_disable()
+                details = self._http_error_details(exc)
+                suffix = f" {details}" if details else ""
+                self._record_persistent_failure("Gemini error", f"{exc}{suffix}")
+        except (TimeoutError, urllib.error.URLError):
+            self._record_transient_failure("Gemini timeout", "request timed out")
         except Exception as exc:
-            self._consecutive_failures += 1
-            sys.stderr.write(f"\033[33m[ambient] Gemini error: {exc}\033[0m\n")
-            self._maybe_disable()
-        return ""
+            self._record_persistent_failure("Gemini error", str(exc))
+        return False, ""
