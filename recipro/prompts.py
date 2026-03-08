@@ -19,9 +19,19 @@ def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
     }
     json_shape = json.dumps(example, ensure_ascii=False, indent=2)
 
+    read_only_rule = """
+CRITICAL: You are operating in PLAN-ONLY mode — simulating Claude's plan permission mode.
+This means you must behave exactly as if --permission-mode plan were active:
+- You may READ any files to understand the codebase.
+- You must NOT create, edit, delete, or modify any files.
+- You must NOT run git commands, tests, linters, or any commands that change state.
+- You must NOT propose a "plan for review" — execute your analysis NOW and return the result.
+- Your ONLY output should be the JSON task list specified below. No prose, no explanations, no preamble."""
+
     if focus:
         return f"""
 You are the planner agent in Recipro, a multi-agent code-improvement loop.
+{read_only_rule}
 
 The user has given you a specific directive. Read it carefully, understand the full intent, and produce up to {max_improvements} concrete tasks that a builder agent should execute to fulfill it.
 
@@ -36,6 +46,7 @@ Return strict JSON only, matching this shape:
 
     return f"""
 You are the planner agent in Recipro, a multi-agent code-improvement loop.
+{read_only_rule}
 
 Inspect the repository in the current working directory and return up to {max_improvements} safe, high-impact improvements.
 
