@@ -60,6 +60,7 @@ class Orchestrator:
         command = [
             "claude", "-p",
             "--dangerously-skip-permissions",
+            "--plan",
             *model_args,
             prompt,
         ]

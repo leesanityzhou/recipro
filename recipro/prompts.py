@@ -21,7 +21,7 @@ def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
 
     if focus:
         return f"""
-You are the critic agent in Recipro, a dual-agent code-improvement loop.
+You are the planner agent in Recipro, a multi-agent code-improvement loop.
 
 The user has given you a specific directive. Read it carefully, understand the full intent, and produce up to {max_improvements} concrete tasks that a builder agent should execute to fulfill it.
 
@@ -35,7 +35,7 @@ Return strict JSON only, matching this shape:
 """.strip()
 
     return f"""
-You are the critic agent in Recipro, a dual-agent code-improvement loop.
+You are the planner agent in Recipro, a multi-agent code-improvement loop.
 
 Inspect the repository in the current working directory and return up to {max_improvements} safe, high-impact improvements.
 
