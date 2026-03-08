@@ -426,15 +426,18 @@ Rules:
                     return True, choices[0].get("message", {}).get("content", "")
                 return True, ""
         except urllib.error.HTTPError as exc:
-            if exc.code == 429:
-                self._record_transient_failure("OpenAI rate limited", str(exc))
-            elif exc.code in (401, 403):
+            details = self._http_error_details(exc)
+            if exc.code in (401, 403):
                 self._disabled = True
-                sys.stderr.write(f"\033[33m[ambient] OpenAI auth error ({exc.code}), narrator disabled.\033[0m\n")
+                sys.stderr.write(f"\033[33m[ambient] OpenAI auth error ({exc.code}): {details}\033[0m\n")
+            elif exc.code == 429:
+                if "quota" in details.lower() or "billing" in details.lower() or "exceeded" in details.lower():
+                    self._disabled = True
+                    sys.stderr.write(f"\033[33m[ambient] OpenAI quota exceeded, narrator disabled: {details}\033[0m\n")
+                else:
+                    self._record_transient_failure("OpenAI rate limited", details or str(exc))
             else:
-                details = self._http_error_details(exc)
-                suffix = f" {details}" if details else ""
-                self._record_persistent_failure("OpenAI error", f"{exc}{suffix}")
+                self._record_persistent_failure("OpenAI error", f"{exc} {details}")
         except (TimeoutError, urllib.error.URLError):
             self._record_transient_failure("OpenAI timeout", "request timed out")
         except Exception as exc:
@@ -470,15 +473,18 @@ Rules:
                         return True, parts[0].get("text", "")
                 return True, ""
         except urllib.error.HTTPError as exc:
-            if exc.code == 429:
-                self._record_transient_failure("Gemini rate limited", str(exc))
-            elif exc.code in (401, 403):
+            details = self._http_error_details(exc)
+            if exc.code in (401, 403):
                 self._disabled = True
-                sys.stderr.write(f"\033[33m[ambient] Gemini auth error ({exc.code}), narrator disabled.\033[0m\n")
+                sys.stderr.write(f"\033[33m[ambient] Gemini auth error ({exc.code}): {details}\033[0m\n")
+            elif exc.code == 429:
+                if "quota" in details.lower() or "billing" in details.lower() or "exceeded" in details.lower():
+                    self._disabled = True
+                    sys.stderr.write(f"\033[33m[ambient] Gemini quota exceeded, narrator disabled: {details}\033[0m\n")
+                else:
+                    self._record_transient_failure("Gemini rate limited", details or str(exc))
             else:
-                details = self._http_error_details(exc)
-                suffix = f" {details}" if details else ""
-                self._record_persistent_failure("Gemini error", f"{exc}{suffix}")
+                self._record_persistent_failure("Gemini error", f"{exc} {details}")
         except (TimeoutError, urllib.error.URLError):
             self._record_transient_failure("Gemini timeout", "request timed out")
         except Exception as exc:
