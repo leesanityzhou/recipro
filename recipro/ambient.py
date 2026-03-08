@@ -131,6 +131,8 @@ Rules:
         self._current_interval = self.FLUSH_INTERVAL
         self._consecutive_failures = 0
         self._disabled = False
+        self._last_flush_time: float = 0.0
+        self._flushing = False  # prevents concurrent flushes
         # Cost tracking
         self._ambient_tokens = {"prompt": 0, "completion": 0}
         self._agent_costs: list[dict[str, Any]] = []
@@ -169,9 +171,14 @@ Rules:
         """Record a high-level stage event (always included, triggers flush).
 
         Flush runs in a separate thread so it never blocks the orchestrator.
+        Respects cooldown to avoid rapid API calls that trigger rate limits.
         """
         with self._lock:
             self._buffer.append(f"[STAGE] {event}")
+            # Skip flush if in backoff or recently flushed (cooldown = current interval)
+            since_last = time.time() - self._last_flush_time
+            if since_last < self._current_interval:
+                return
         threading.Thread(target=self._flush, kwargs={"force": True}, daemon=True).start()
 
     def track_cost(self, role: str, model: str | None, input_chars: int, output_chars: int) -> None:
@@ -273,14 +280,21 @@ Rules:
                 self._buffer.clear()
             return
         with self._lock:
+            if self._flushing:
+                return  # another thread is already flushing
             if not self._buffer:
                 return
             if not force and len(self._buffer) < self.MIN_BUFFER_LINES:
                 return
             new_messages = self._buffer[:]
             self._buffer.clear()
+            self._flushing = True
 
-        success, response = self._ask_llm(new_messages)
+        try:
+            self._last_flush_time = time.time()
+            success, response = self._ask_llm(new_messages)
+        finally:
+            self._flushing = False
         if not success:
             with self._lock:
                 self._buffer = new_messages + self._buffer
