@@ -59,8 +59,7 @@ class Orchestrator:
         model_args = ("--model", self.config.planner_model) if self.config.planner_model else ()
         command = [
             "claude", "-p",
-            "--dangerously-skip-permissions",
-            "--plan",
+            "--permission-mode", "plan",
             *model_args,
             prompt,
         ]
