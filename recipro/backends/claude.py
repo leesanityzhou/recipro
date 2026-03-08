@@ -17,13 +17,15 @@ class ClaudeBackend(Backend):
     stream_key = "claude"
     default_cmd = "claude"
 
-    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path) -> Any:
+    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path, *, continue_session: bool = False) -> Any:
         """Critic role: read-only."""
         model_args = ("--model", self.model) if self.model else ()
+        continue_args = ("--continue",) if continue_session else ()
         command = [
             *self.cmd,
             "-p",
             "--dangerously-skip-permissions",
+            *continue_args,
             *model_args,
             *self.extra_args,
             prompt,
@@ -31,14 +33,15 @@ class ClaudeBackend(Backend):
         result = run_command(command, cwd=cwd, check=True, stream=self.stream_key)
         return extract_json_value(result.stdout)
 
-    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False) -> str:
+    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False, continue_session: bool = False) -> str:
         """Builder role: full permissions to edit code + web access for references."""
         model_args = ("--model", self.model) if self.model else ()
-        perm_args = ("--dangerously-skip-permissions",)
+        continue_args = ("--continue",) if continue_session else ()
         command = [
             *self.cmd,
             "-p",
-            *perm_args,
+            "--dangerously-skip-permissions",
+            *continue_args,
             *model_args,
             *self.extra_args,
             prompt,

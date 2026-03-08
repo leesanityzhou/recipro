@@ -148,10 +148,11 @@ class Orchestrator:
                 review_round += 1
                 log.info("  Round %d: %s implementing...", review_round, self.builder.name)
 
-                current_diff = self.git.diff() if feedback else ""
-                prompt = implement_prompt(task, feedback=feedback, diff=current_diff)
+                is_retry = review_round > 1
+                prompt = implement_prompt(task, feedback=feedback)
                 result_text = self.builder.exec_text(
                     prompt, self.config.repo_path, editable=True,
+                    continue_session=is_retry,
                 )
                 ambient = get_ambient()
                 if ambient:
@@ -179,8 +180,7 @@ class Orchestrator:
                     )
 
                 log.info("  Round %d: %s reviewing changes...", review_round, self.critic.name)
-                review_diff = self.git.diff()
-                review_prompt_text = review_prompt(self.config.focus, review_diff)
+                review_prompt_text = review_prompt(self.config.focus)
                 review_payload = self.critic.exec_json(
                     review_prompt_text, REVIEW_SCHEMA, self.config.repo_path,
                 )
@@ -206,7 +206,7 @@ class Orchestrator:
             for verify_round in range(1, MAX_VERIFY_ROUNDS + 1):
                 log.info("  Verify round %d: running lint/tests...", verify_round)
                 vp = verify_prompt(task, test_feedback)
-                verify_text = self.builder.exec_text(vp, self.config.repo_path, editable=True)
+                verify_text = self.builder.exec_text(vp, self.config.repo_path, editable=True, continue_session=True)
                 ambient = get_ambient()
                 if ambient:
                     ambient.track_cost("builder", self.builder.model, len(vp), len(verify_text))
@@ -231,6 +231,7 @@ class Orchestrator:
             pr_prompt_text = push_pr_prompt(task, outcome.summary, outcome.changed_files, auto_merge=self.config.auto_merge)
             pr_text = self.builder.exec_text(
                 pr_prompt_text, self.config.repo_path, editable=True,
+                continue_session=True,
             )
             ambient = get_ambient()
             if ambient:

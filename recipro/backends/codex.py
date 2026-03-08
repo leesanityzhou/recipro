@@ -19,7 +19,7 @@ class CodexBackend(Backend):
     stream_key = "codex"
     default_cmd = "codex"
 
-    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path) -> Any:
+    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path, *, continue_session: bool = False) -> Any:
         with TemporaryDirectory(prefix="recipro-codex-") as temp_dir:
             temp_path = Path(temp_dir)
             schema_path = temp_path / "schema.json"
@@ -43,7 +43,7 @@ class CodexBackend(Backend):
             text = output_path.read_text(encoding="utf-8") if output_path.exists() else result.stdout
             return extract_json_value(text)
 
-    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False) -> str:
+    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False, continue_session: bool = False) -> str:
         """Builder role: full sandbox access + web search for references."""
         sandbox = "danger-full-access" if editable else "read-only"
         model_args = ("--model", self.model) if self.model else ()

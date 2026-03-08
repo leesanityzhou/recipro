@@ -18,11 +18,11 @@ class Backend(ABC):
         self.extra_args = extra_args
 
     @abstractmethod
-    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path) -> Any:
+    def exec_json(self, prompt: str, schema: dict[str, Any], cwd: Path, *, continue_session: bool = False) -> Any:
         """Execute prompt and return structured JSON."""
 
     @abstractmethod
-    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False) -> str:
+    def exec_text(self, prompt: str, cwd: Path, *, editable: bool = False, continue_session: bool = False) -> str:
         """Execute prompt and return text. If editable=True, allow file modifications."""
 
     @abstractmethod
