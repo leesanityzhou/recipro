@@ -44,12 +44,18 @@ def build_report_markdown(
         lines.append(f"## Task {i}: {outcome.task.title} [{status_emoji}]")
         lines.append("")
 
+        if outcome.summary:
+            lines.append(f"- **Summary**: {outcome.summary}")
         if outcome.pr_url:
             lines.append(f"- **PR**: {outcome.pr_url}")
         if outcome.branch:
             lines.append(f"- **Branch**: `{outcome.branch}`")
         if outcome.review_rounds:
             lines.append(f"- **Review rounds**: {outcome.review_rounds}")
+        if outcome.changed_files:
+            lines.append(f"- **Changed files**: {', '.join(f'`{f}`' for f in outcome.changed_files)}")
+        if outcome.tests_ran:
+            lines.append(f"- **Tests ran**: {', '.join(f'`{t}`' for t in outcome.tests_ran)}")
         if outcome.error:
             lines.append(f"- **Error**: {outcome.error}")
         if outcome.manual_actions:
