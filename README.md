@@ -22,11 +22,17 @@ pip install recipro-ai
 recipro
 ```
 
-On first run, Recipro walks you through setup:
+Run from your target repo directory (or use `--repo`):
+
+```
+cd /path/to/your/repo
+recipro
+```
+
+On first run, Recipro walks you through backend/model setup:
 
 ```
 First-time setup:
-  Target repo path: /path/to/your/repo
   Planner model: ...
   Critic backend: ...
   Builder backend: ...
@@ -42,8 +48,9 @@ Preferences persist — subsequent runs only ask for the focus directive.
 ## Usage
 
 ```bash
-recipro                          # Run: setup (if first time) → focus → execute
-recipro --reconfigure            # Re-do setup (change repo, backends, models)
+recipro                          # Run in current directory
+recipro --repo /path/to/repo     # Run on a specific repo
+recipro --reconfigure            # Re-do setup (change backends, models)
 recipro --set KEY=VALUE          # Change a config setting
 recipro --dry-run                # Plan only, no repo changes
 recipro --clean                  # Reset dirty worktree from a failed run
@@ -62,7 +69,7 @@ Press Enter with no input for a general code scan (finds bugs, security issues, 
 
 ### Changing settings
 
-Backend, model, and repo path — re-run interactive setup:
+Backend and model selection — re-run interactive setup:
 
 ```bash
 recipro --reconfigure
@@ -120,8 +127,10 @@ This discards uncommitted changes, switches back to main, and deletes all `recip
 - **Mix and match backends** — assign Claude or Codex independently to each role (planner/builder/critic)
 - **Focus mode** — natural-language directive each run, any language. No directive = general scan
 - **Ambient supervisor** — background agent watching all output, reporting status, catching stuck loops, estimating costs
+- **Automatic test generation** — builder writes happy + unhappy path tests for every change, critic reviews coverage (toggle with `add_tests`)
 - **Automatic PR creation** — full git workflow: pull latest, branch, lint, test, commit, push, PR
 - **Auto-merge** — optionally squash-merge PRs after creation
+- **Worktree-friendly** — defaults to current directory, works naturally with git worktrees
 - **Worktree cleanup** — `--clean` resets a dirty repo left by a failed run
 - **Zero dependencies** — pure Python stdlib
 
@@ -134,9 +143,16 @@ max_improvements: 1            # Tasks per run
 require_clean_worktree: true   # Require clean git state before run
 auto_merge: false              # Auto squash-merge PRs after creation
 verbose: false                 # Show raw agent streaming output
+add_tests: true                # Builder writes tests, critic reviews test coverage
 ```
 
 Backend/model selections are in `~/.recipro/memory/preferences.json`, managed via `recipro --reconfigure`.
+
+## Testing
+
+```bash
+pytest tests/
+```
 
 ## Data directory
 
@@ -144,7 +160,7 @@ Backend/model selections are in `~/.recipro/memory/preferences.json`, managed vi
 ~/.recipro/
 ├─ config.yaml             # Settings
 ├─ memory/
-│  ├─ preferences.json     # Repo path, backend/model selections
+│  ├─ preferences.json     # Backend/model selections
 │  └─ state.json           # Run history
 └─ reports/                # Per-run operational reports
 ```
