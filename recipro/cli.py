@@ -348,6 +348,7 @@ def main() -> int:
         require_clean_worktree=bool(settings.get("require_clean_worktree", True)),
         auto_merge=bool(settings.get("auto_merge", False)),
         verbose=bool(settings.get("verbose", False)),
+        add_tests=bool(settings.get("add_tests", True)),
     )
 
     ambient = init_agent(

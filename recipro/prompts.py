@@ -84,6 +84,7 @@ def implement_prompt(
     task: ImprovementTask,
     *,
     feedback: list[str],
+    add_tests: bool = True,
 ) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
     steps_block = "\n".join(f"{i}. {s}" for i, s in enumerate(task.steps, 1)) if task.steps else "- No specific steps provided, use your judgment."
@@ -118,6 +119,13 @@ Hard constraints:
 - do not upgrade dependencies
 - do not run git commands (branching and committing is handled externally)
 - if you run tests, keep them as small and relevant as possible
+{"" if not add_tests else """
+Testing requirements:
+- Write tests for EVERY change you make. Place them in the project's existing test directory/structure.
+- Cover happy paths: verify the new behavior works as intended.
+- Cover unhappy paths: think about what could go wrong — invalid inputs, missing config, auth failures, edge cases, race conditions — and write tests for those too.
+- If the project has no existing test infrastructure, set one up (e.g. pytest for Python, jest for JS/TS).
+"""}
 
 After editing the repository, return strict JSON only:
 {{
@@ -129,7 +137,7 @@ After editing the repository, return strict JSON only:
 """.strip()
 
 
-def review_prompt(focus: str | None = None) -> str:
+def review_prompt(focus: str | None = None, add_tests: bool = True) -> str:
     if focus:
         return f"""
 You are the critic agent in Recipro.
@@ -147,6 +155,11 @@ Your job is to ensure the user's intent has been fully and correctly implemented
 
 Ignore style-only nitpicks. Focus on whether the directive was fulfilled correctly.
 
+{"Also check test coverage:" if add_tests else ""}
+{"- Are there tests for every changed behavior (both happy and unhappy paths)?" if add_tests else ""}
+{"- Are edge cases tested (invalid inputs, missing config, auth failures, error conditions)?" if add_tests else ""}
+{"- If tests are missing or insufficient, list specific test cases that should be added in your findings." if add_tests else ""}
+
 Return strict JSON only:
 {{
   "status": "pass" or "fail",
@@ -158,7 +171,14 @@ Return strict JSON only:
 Use "pass" only when the directive is fully and correctly implemented.
 """.strip()
 
-    return """
+    test_review_block = """
+Also check test coverage:
+- Are there tests for every changed behavior (both happy and unhappy paths)?
+- Are edge cases tested (invalid inputs, missing config, auth failures, error conditions)?
+- If tests are missing or insufficient, list specific test cases that should be added in your findings.
+""" if add_tests else ""
+
+    return f"""
 You are the critic agent in Recipro.
 
 A builder agent has made changes to the repository.
@@ -172,14 +192,14 @@ Focus only on material issues:
 - validation gaps
 
 Ignore style-only nitpicks.
-
+{test_review_block}
 Return strict JSON only:
-{
+{{
   "status": "pass" or "fail",
   "summary": "short explanation",
   "findings": ["concrete fix 1", "concrete fix 2"],
   "manual_actions": []
-}
+}}
 
 Use "pass" only when there are no material findings left to fix before commit.
 """.strip()

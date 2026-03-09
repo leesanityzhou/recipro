@@ -158,7 +158,7 @@ class Orchestrator:
                     if ambient:
                         findings_detail = "\n".join(f"  - {f}" for f in feedback)
                         ambient.stage(f"Builder is reworking based on critic feedback:\n{findings_detail}")
-                prompt = implement_prompt(task, feedback=feedback)
+                prompt = implement_prompt(task, feedback=feedback, add_tests=self.config.add_tests)
                 result_text = self.builder.exec_text(
                     prompt, self.config.repo_path, editable=True,
                     continue_session=is_retry,
@@ -193,7 +193,7 @@ class Orchestrator:
                 if ambient:
                     files = ", ".join(implementation.changed_files) if implementation.changed_files else "unknown files"
                     ambient.stage(f"Implementation done: {implementation.summary}\nChanged: {files}")
-                review_prompt_text = review_prompt(self.config.focus)
+                review_prompt_text = review_prompt(self.config.focus, add_tests=self.config.add_tests)
                 review_payload = self.critic.exec_json(
                     review_prompt_text, REVIEW_SCHEMA, self.config.repo_path,
                 )

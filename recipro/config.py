@@ -11,6 +11,7 @@ DEFAULT_SETTINGS = {
     "require_clean_worktree": True,
     "auto_merge": False,
     "verbose": False,
+    "add_tests": True,
 }
 
 
@@ -110,6 +111,7 @@ class AppConfig:
     require_clean_worktree: bool = True
     auto_merge: bool = False
     verbose: bool = False
+    add_tests: bool = True
 
     @property
     def report_dir(self) -> Path:
