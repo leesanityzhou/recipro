@@ -209,9 +209,10 @@ class GitRepo:
         """Reset dirty worktree: discard changes, switch to default branch, delete recipro/* branches."""
         result: dict[str, list[str]] = {"discarded": [], "deleted_branches": [], "switched_to": []}
 
-        # 1. Discard all uncommitted changes
+        # 1. Discard all uncommitted changes (staged + unstaged + untracked)
         status = self.status_lines()
         if status:
+            run_command(["git", "reset", "HEAD"], cwd=self.repo_path, check=False)
             run_command(["git", "checkout", "."], cwd=self.repo_path, check=False)
             run_command(["git", "clean", "-fd"], cwd=self.repo_path, check=False)
             result["discarded"] = status
