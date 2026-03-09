@@ -6,10 +6,13 @@ from recipro.utils import (
     CommandError,
     dedupe_strings,
     extract_json_value,
+    infer_status,
+    parse_llm_response,
     slugify,
     _codex_stream_filter,
     _claude_stream_filter,
 )
+from recipro.models import ImplementationResult
 
 
 # -- extract_json_value --
@@ -124,6 +127,77 @@ class TestCommandError:
         err = CommandError(["ls"], 2, "out", "  ")
         assert "ls" in str(err)
         assert err.returncode == 2
+
+
+# -- infer_status --
+
+class TestInferStatus:
+    def test_clear_pass(self):
+        assert infer_status("All tests passed successfully") == "pass"
+
+    def test_clear_fail(self):
+        assert infer_status("3 tests failed with errors") == "fail"
+
+    def test_mixed_signals_more_pass(self):
+        assert infer_status("Tests passed, no issues found, all clean") == "pass"
+
+    def test_mixed_signals_more_fail(self):
+        assert infer_status("Tests passed but 2 errors and 1 failure found") == "fail"
+
+    def test_no_signals_defaults_fail(self):
+        assert infer_status("I did some stuff to the code") == "fail"
+
+    def test_empty(self):
+        assert infer_status("") == "fail"
+
+    def test_success_keyword(self):
+        assert infer_status("Build successful, no issues") == "pass"
+
+    def test_lgtm(self):
+        assert infer_status("LGTM, looks good") == "pass"
+
+    def test_exception(self):
+        assert infer_status("RuntimeError: exception in module X") == "fail"
+
+
+# -- parse_llm_response --
+
+class TestParseLlmResponse:
+    def test_valid_json(self):
+        result = parse_llm_response('{"status": "pass", "summary": "ok"}')
+        assert result == {"status": "pass", "summary": "ok"}
+
+    def test_valid_json_with_model(self):
+        result = parse_llm_response(
+            '{"summary": "added auth", "changed_files": ["a.py"]}',
+            ImplementationResult,
+        )
+        assert isinstance(result, ImplementationResult)
+        assert result.summary == "added auth"
+        assert result.changed_files == ["a.py"]
+
+    def test_fallback_infers_pass(self):
+        result = parse_llm_response("All tests passed, no issues found")
+        assert isinstance(result, dict)
+        assert result["status"] == "pass"
+
+    def test_fallback_infers_fail(self):
+        result = parse_llm_response("Build failed with 3 errors")
+        assert isinstance(result, dict)
+        assert result["status"] == "fail"
+
+    def test_fallback_with_model(self):
+        result = parse_llm_response("did some stuff", ImplementationResult)
+        assert isinstance(result, ImplementationResult)
+        assert result.summary  # should have some text
+
+    def test_json_with_preamble(self):
+        result = parse_llm_response('Here is the result:\n{"status": "pass"}')
+        assert result == {"status": "pass"}
+
+    def test_json_in_code_fence(self):
+        result = parse_llm_response('```json\n{"status": "fail"}\n```')
+        assert result == {"status": "fail"}
 
 
 # -- stream filters --

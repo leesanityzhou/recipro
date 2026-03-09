@@ -77,6 +77,53 @@ def extract_json_value(text: str) -> Any:
     raise ValueError(f"Could not parse JSON from response: {text[:400]}")
 
 
+_FAIL_SIGNALS = re.compile(
+    r"\b(fail(?:ed|ure|s)?|error(?:s)?|broken|not pass(?:ing|ed)?|cannot|exception|crash(?:ed|es)?)\b",
+    re.IGNORECASE,
+)
+_PASS_SIGNALS = re.compile(
+    r"\b(pass(?:ed|es|ing)?|success(?:ful)?|no (?:issues?|errors?|failures?)|all clear|lgtm|clean)\b",
+    re.IGNORECASE,
+)
+
+
+def infer_status(text: str) -> str:
+    """Infer pass/fail from natural language using signal-word scoring."""
+    fail_score = len(_FAIL_SIGNALS.findall(text))
+    pass_score = len(_PASS_SIGNALS.findall(text))
+    return "pass" if pass_score > fail_score else "fail"
+
+
+def parse_llm_response(text: str, model_cls: type | None = None, *, label: str = "") -> dict[str, Any] | Any:
+    """Unified LLM response parser.
+
+    1. Try to extract JSON.
+    2. If JSON found and model_cls has from_dict, return model_cls.from_dict(payload).
+    3. If JSON not found, return a minimal dict with status inferred from text.
+    4. Always logs when falling back.
+    """
+    import logging
+    _log = logging.getLogger("recipro.parse")
+
+    # Try JSON first
+    try:
+        payload = extract_json_value(text)
+        if model_cls is not None and hasattr(model_cls, "from_dict") and isinstance(payload, dict):
+            return model_cls.from_dict(payload)
+        return payload
+    except ValueError:
+        pass
+
+    # Fallback: infer from text
+    status = infer_status(text)
+    _log.debug("JSON parse failed for %s, inferred status=%s from text", label or "response", status)
+
+    if model_cls is not None and hasattr(model_cls, "from_dict"):
+        return model_cls.from_dict({"status": status, "summary": text.strip()[:500]})
+
+    return {"status": status, "summary": text.strip()[:500]}
+
+
 def _codex_stream_filter(line: str, state: dict[str, Any]) -> str | None:
     """Only show lines from 'codex' sections, skip user/exec/header noise."""
     stripped = line.strip()

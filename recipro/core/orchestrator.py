@@ -11,7 +11,7 @@ from ..models import ImplementationResult, ImprovementTask, ReviewResult, TaskOu
 from ..prompts import implement_prompt, push_pr_prompt, review_prompt, scan_prompt, verify_prompt
 from ..reporting import build_report_markdown, write_report
 from ..state import append_run
-from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, run_command
+from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, parse_llm_response, run_command
 from .git_tools import GitRepo
 
 log = logging.getLogger("recipro")
@@ -167,14 +167,7 @@ class Orchestrator:
                 if ambient:
                     ambient.track_cost("builder", self.builder.model, len(prompt), len(result_text))
 
-                try:
-                    impl_payload = extract_json_value(result_text)
-                    if isinstance(impl_payload, dict):
-                        implementation = ImplementationResult.from_dict(impl_payload)
-                    else:
-                        implementation = ImplementationResult(summary=result_text.strip())
-                except ValueError:
-                    implementation = ImplementationResult(summary=result_text.strip())
+                implementation = parse_llm_response(result_text, ImplementationResult, label="builder")
 
                 outcome.review_rounds = review_round
                 outcome.summary = implementation.summary or outcome.summary
@@ -230,21 +223,15 @@ class Orchestrator:
                 ambient = get_ambient()
                 if ambient:
                     ambient.track_cost("builder", self.builder.model, len(vp), len(verify_text))
-                try:
-                    vp_payload = extract_json_value(verify_text)
-                    if isinstance(vp_payload, dict) and vp_payload.get("status") == "pass":
-                        log.info("  Lint/tests passed!")
-                        break
-                    failures = vp_payload.get("failures", []) if isinstance(vp_payload, dict) else []
-                    test_feedback = failures if failures else [vp_payload.get("summary", "Tests failed")]
-                    log.info("  Lint/tests failed (%d issue(s)), sending back to builder...", len(test_feedback))
-                except ValueError:
-                    lower = verify_text.lower()
-                    if any(s in lower for s in ("all tests pass", "tests passed", "lint passed", "no issues", "everything passes")):
-                        log.info("  Lint/tests passed! (inferred from text)")
-                        break
-                    test_feedback = ["Could not determine test results, please re-run tests and return strict JSON"]
-                    log.info("  Could not parse verify result, retrying...")
+                vp_result = parse_llm_response(verify_text, label="verify")
+                status = vp_result.get("status", "fail") if isinstance(vp_result, dict) else "fail"
+                if status == "pass":
+                    log.info("  Lint/tests passed!")
+                    break
+                failures = vp_result.get("failures", []) if isinstance(vp_result, dict) else []
+                summary = vp_result.get("summary", "Tests failed") if isinstance(vp_result, dict) else "Tests failed"
+                test_feedback = failures if failures else [summary]
+                log.info("  Lint/tests failed (%d issue(s)), sending back to builder...", len(test_feedback))
             else:
                 log.warning("  Lint/tests did not pass after %d rounds, proceeding anyway.", MAX_VERIFY_ROUNDS)
 
@@ -260,14 +247,11 @@ class Orchestrator:
             ambient = get_ambient()
             if ambient:
                 ambient.track_cost("builder", self.builder.model, len(pr_prompt_text), len(pr_text))
-            try:
-                pr_payload = extract_json_value(pr_text)
-                if isinstance(pr_payload, dict):
-                    outcome.pr_url = pr_payload.get("pr_url")
-                    outcome.branch = pr_payload.get("branch_name", outcome.branch)
-                    outcome.commit_sha = pr_payload.get("commit_sha")
-            except ValueError:
-                log.warning("  Could not parse PR result, continuing...")
+            pr_result = parse_llm_response(pr_text, label="push-pr")
+            if isinstance(pr_result, dict):
+                outcome.pr_url = pr_result.get("pr_url")
+                outcome.branch = pr_result.get("branch_name", outcome.branch)
+                outcome.commit_sha = pr_result.get("commit_sha")
 
             outcome.status = "completed"
             if outcome.pr_url:
