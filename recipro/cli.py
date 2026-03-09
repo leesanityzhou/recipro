@@ -218,6 +218,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip all interactive prompts.",
     )
     parser.add_argument(
+        "--repo",
+        metavar="PATH",
+        help="Target repo path (default: current directory).",
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         help="Clean up target repo: discard changes, switch to default branch, delete recipro/* branches.",
@@ -231,7 +236,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version="%(prog)s 0.1.1",
     )
     return parser.parse_args()
 
@@ -267,8 +272,6 @@ def main() -> int:
 
     if need_setup:
         print("First-time setup (press Enter to keep defaults):")
-
-        repo_path = _pick_repo(prefs.get("repo_path") if prefs else None)
         planner_model = _pick_model("planner", "claude", prefs.get("planner_model") if prefs else None)
 
         critic_backend = _pick_backend("critic", (prefs or {}).get("critic_backend", "codex"))
@@ -280,7 +283,6 @@ def main() -> int:
         ambient_provider, ambient_model = _pick_ambient()
 
         prefs = {
-            "repo_path": repo_path,
             "planner_model": planner_model,
             "critic_backend": critic_backend,
             "critic_model": critic_model,
@@ -296,10 +298,12 @@ def main() -> int:
         print("No preferences found. Run without --no-select first, or use --reconfigure.")
         return 1
 
+    # Resolve repo path: --repo flag > cwd
+    repo_path = Path(args.repo).expanduser().resolve() if args.repo else Path.cwd()
+
     # -- Clean command --
     if args.clean:
         from .core.git_tools import GitRepo
-        repo_path = Path(prefs["repo_path"]).expanduser().resolve()
         config = AppConfig(
             repo_path=repo_path, focus=None, max_improvements=1,
             planner_model=None, critic_backend="claude", critic_model=None,
@@ -332,7 +336,7 @@ def main() -> int:
 
     # Build config
     config = AppConfig(
-        repo_path=Path(prefs["repo_path"]).expanduser().resolve(),
+        repo_path=repo_path,
         focus=focus,
         max_improvements=int(settings.get("max_improvements", 1)),
         planner_model=prefs.get("planner_model"),
