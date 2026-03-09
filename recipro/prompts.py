@@ -81,7 +81,7 @@ Feedback to address:
 Constraints: no public API changes, no dependency upgrades, no git commands.
 Do NOT over-engineer. Make the minimum changes needed to solve the task. No unnecessary abstractions, no premature generalization, no refactoring beyond what is required.
 {test_block}
-Testing scope: only run tests directly related to the files you changed. Do NOT run the full test suite — that happens in a separate verification step.
+Testing scope: run lint on files you changed, and run tests directly related to your changes. Do NOT run the full test suite — that happens in a separate verification step. Look at the project's config files (pyproject.toml, setup.cfg, Makefile, etc.) to find the lint command.
 
 Return strict JSON:
 {{
@@ -101,7 +101,7 @@ The implementation for "{task.title}" is reviewed and approved. Verify it passes
 Previous failures to fix:
 {feedback_block}
 
-Run the full lint and test suite. Fix any issues caused by the implementation. Return strict JSON:
+Run the full lint and test suite. Check the project's config files (pyproject.toml, setup.cfg, Makefile, lint.sh, etc.) to find the correct lint and test commands. Actually run them — do not skip or assume they pass. Fix any issues caused by the implementation. Return strict JSON:
 {{
   "status": "pass" or "fail",
   "summary": "what you did",

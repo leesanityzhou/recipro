@@ -65,8 +65,9 @@ class TestImplementPrompt:
     def test_only_related_tests(self):
         task = _make_task()
         prompt = implement_prompt(task, feedback=[])
-        assert "only run tests" in prompt.lower()
-        assert "directly related" in prompt.lower()
+        assert "run lint" in prompt.lower()
+        assert "related" in prompt.lower()
+        assert "full test suite" in prompt.lower()
 
 
 class TestReviewPrompt:
@@ -122,3 +123,5 @@ class TestVerifyPrompt:
         task = _make_task()
         prompt = verify_prompt(task, feedback=[])
         assert "full" in prompt.lower()
+        assert "actually run" in prompt.lower()
+        assert "do not skip" in prompt.lower()
