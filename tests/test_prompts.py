@@ -15,18 +15,17 @@ class TestScanPrompt:
         prompt = scan_prompt(max_improvements=3, focus="Fix all SQL injection")
         assert "Fix all SQL injection" in prompt
         assert "up to 3" in prompt
-        assert "PLAN-ONLY" in prompt
+        assert "builder agent" in prompt.lower()
 
     def test_without_focus(self):
         prompt = scan_prompt(max_improvements=1, focus=None)
         assert "up to 1" in prompt
         assert "bugs" in prompt
-        assert "PLAN-ONLY" in prompt
 
-    def test_json_shape_included(self):
+    def test_specificity_guidance(self):
         prompt = scan_prompt(max_improvements=1, focus=None)
-        assert '"tasks"' in prompt
-        assert '"steps"' in prompt
+        assert "file" in prompt.lower()
+        assert "function" in prompt.lower()
 
 
 class TestImplementPrompt:

@@ -79,6 +79,31 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _detect_language(text: str) -> str:
+    """Detect the human language in text by looking for non-ASCII script characters."""
+    import unicodedata
+    counts: dict[str, int] = {}
+    for ch in text:
+        if ch.isascii():
+            continue
+        try:
+            name = unicodedata.name(ch, "")
+        except ValueError:
+            continue
+        if name.startswith("CJK") or name.startswith("HANGUL"):
+            script = "CJK"
+        elif "HIRAGANA" in name or "KATAKANA" in name:
+            script = "Japanese"
+        else:
+            script = name.split()[0]
+        counts[script] = counts.get(script, 0) + 1
+    if not counts:
+        return "English"
+    top = max(counts, key=counts.get)  # type: ignore[arg-type]
+    mapping = {"CJK": "Chinese", "HANGUL": "Korean", "ARABIC": "Arabic"}
+    return mapping.get(top, top)
+
+
 class AmbientAgent:
     SYSTEM_PROMPT = """You narrate Recipro, a multi-agent code improvement tool (Planner → Builder → Critic → commit/PR).
 
@@ -270,9 +295,12 @@ Rules:
     def _system_prompt(self) -> str:
         base = self.SYSTEM_PROMPT
         if self.focus:
+            lang = _detect_language(self.focus)
             base += (
-                f"\n\nThe user's directive is in the following language — "
-                f"respond in the SAME language:\n{self.focus[:300]}"
+                f"\n\nThe user's directive contains text in {lang}. "
+                f"You MUST respond in {lang}, regardless of other languages in the input "
+                f"(error logs, code, etc. may be in English — ignore those for language detection).\n"
+                f"Directive:\n{self.focus[:300]}"
             )
         return base
 

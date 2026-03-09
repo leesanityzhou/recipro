@@ -1,26 +1,6 @@
 from __future__ import annotations
 
-import json
-
 from .models import ImprovementTask
-
-_PLAN_ONLY = """You are operating in PLAN-ONLY mode — behave exactly as if --permission-mode plan were active:
-- READ any files to understand the codebase thoroughly.
-- Do NOT create, edit, delete, or modify any files.
-- Do NOT run git commands, tests, linters, or any state-changing commands.
-- Do NOT propose a "plan for review" — execute your analysis NOW.
-- Your ONLY output is the JSON specified below. No prose, no preamble."""
-
-_JSON_SHAPE = json.dumps({
-    "tasks": [{
-        "title": "Short title",
-        "description": "What and why.",
-        "steps": ["Concrete step referencing file:function"],
-        "files": ["path/to/file.py"],
-        "expected_change": "One-sentence outcome.",
-        "manual_actions": [],
-    }]
-}, ensure_ascii=False, indent=2)
 
 _TEST_REQUIREMENTS = """
 Write tests for every change: happy paths (expected behavior) and unhappy paths (invalid inputs, missing config, error conditions, edge cases). Use the project's existing test framework.
@@ -41,45 +21,34 @@ def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
 
 def focused_scan_prompt(*, max_improvements: int, focus: str) -> str:
     return f"""
-You are Recipro's planner.
-
-{_PLAN_ONLY}
+You are Recipro's planner. Read ALL relevant source files to understand the codebase thoroughly.
 
 User directive:
 {focus}
 
-Read ALL relevant source files before planning. Understand the existing patterns, dependencies, and call sites. Then produce up to {max_improvements} concrete tasks.
+Produce up to {max_improvements} concrete improvement(s). For each, describe:
+- What the problem is and why it matters
+- Which specific files and functions are involved
+- Exactly what to change (reference file:function by name, not vague goals)
 
-The "steps" field is critical — a builder agent will follow these steps verbatim. Each step MUST:
-- Reference specific files and functions by name
-- Describe exactly what to change, not just what to achieve
-- Example: "Add HMAC validation in routes.py:webhook_handler before processing the request body"
-- NOT: "Add authentication to the webhook endpoint"
-
-Return strict JSON:
-{_JSON_SHAPE}
+Be specific. A builder agent will implement your plan verbatim.
 """.strip()
 
 
 def general_scan_prompt(*, max_improvements: int) -> str:
     return f"""
-You are Recipro's planner.
+You are Recipro's planner. Scan the entire repo thoroughly — read source files, configs, and tests.
 
-{_PLAN_ONLY}
-
-Scan the entire repo thoroughly. Read source files, configs, and tests. Then identify up to {max_improvements} high-impact improvements.
-
+Identify up to {max_improvements} high-impact improvement(s).
 Prioritize: bugs, correctness gaps, security issues, maintainability.
 Constraints: no architecture rewrites, no dependency upgrades, no migrations, no API changes.
 
-The "steps" field is critical — a builder agent will follow these steps verbatim. Each step MUST:
-- Reference specific files and functions by name
-- Describe exactly what to change, not just what to achieve
-- Example: "Add bounds check in parser.py:parse_input before accessing tokens[index]"
-- NOT: "Fix unsafe array indexing"
+For each improvement, describe:
+- What the problem is and why it matters
+- Which specific files and functions are involved
+- Exactly what to change (reference file:function by name, not vague goals)
 
-Return strict JSON:
-{_JSON_SHAPE}
+Be specific. A builder agent will implement your plan verbatim.
 """.strip()
 
 

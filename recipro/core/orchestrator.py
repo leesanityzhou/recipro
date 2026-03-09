@@ -11,7 +11,7 @@ from ..models import ImplementationResult, ImprovementTask, ReviewResult, TaskOu
 from ..prompts import implement_prompt, push_pr_prompt, review_prompt, scan_prompt, verify_prompt
 from ..reporting import build_report_markdown, write_report
 from ..state import append_run
-from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, parse_llm_response, run_command
+from ..utils import CommandError, dedupe_strings, ensure_directory, extract_json_value, parse_llm_response
 from .git_tools import GitRepo
 
 log = logging.getLogger("recipro")
@@ -56,29 +56,42 @@ class Orchestrator:
             max_improvements=self.config.max_improvements,
             focus=self.config.focus,
         )
-        model_args = ("--model", self.config.planner_model) if self.config.planner_model else ()
-        command = [
-            "claude", "-p",
-            "--dangerously-skip-permissions",
-            *model_args,
+        from ..backends.claude import run_sdk_query
+        result_text, _ = run_sdk_query(
             prompt,
-        ]
-        result = run_command(command, cwd=self.config.repo_path, check=True, stream="claude")
+            cwd=self.config.repo_path,
+            model=self.config.planner_model,
+            permission_mode="plan",
+        )
         ambient = get_ambient()
         if ambient:
-            ambient.track_cost("planner", self.config.planner_model or "sonnet", len(prompt), len(result.stdout))
-        payload = extract_json_value(result.stdout)
-        if isinstance(payload, dict) and "tasks" in payload:
-            items = payload["tasks"]
-        elif isinstance(payload, list):
-            items = payload
-        else:
-            raise RuntimeError(f"Unexpected planner output: {str(payload)[:200]}")
-        tasks = [
-            task for item in items
-            if (task := ImprovementTask.from_dict(item)).title and task.description
-        ][: self.config.max_improvements]
-        return tasks
+            ambient.track_cost("planner", self.config.planner_model or "sonnet", len(prompt), len(result_text))
+
+        # Plan mode returns natural language; try structured JSON as fallback.
+        if not result_text.strip():
+            raise RuntimeError("Planner returned empty response")
+
+        try:
+            payload = extract_json_value(result_text)
+            if isinstance(payload, dict) and "tasks" in payload:
+                items = payload["tasks"]
+            elif isinstance(payload, list):
+                items = payload
+            else:
+                items = []
+            tasks = [
+                task for item in items
+                if (task := ImprovementTask.from_dict(item)).title and task.description
+            ][: self.config.max_improvements]
+            if tasks:
+                return tasks
+        except ValueError:
+            pass
+
+        return [ImprovementTask.from_dict({
+            "title": "Planned improvements",
+            "description": result_text.strip(),
+        })]
 
     def run(self) -> tuple[Path, list[TaskOutcome]]:
         ensure_directory(self.config.report_dir)
