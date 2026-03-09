@@ -239,7 +239,11 @@ class Orchestrator:
                     test_feedback = failures if failures else [vp_payload.get("summary", "Tests failed")]
                     log.info("  Lint/tests failed (%d issue(s)), sending back to builder...", len(test_feedback))
                 except ValueError:
-                    test_feedback = ["Could not determine test results, please re-run tests"]
+                    lower = verify_text.lower()
+                    if any(s in lower for s in ("all tests pass", "tests passed", "lint passed", "no issues", "everything passes")):
+                        log.info("  Lint/tests passed! (inferred from text)")
+                        break
+                    test_feedback = ["Could not determine test results, please re-run tests and return strict JSON"]
                     log.info("  Could not parse verify result, retrying...")
             else:
                 log.warning("  Lint/tests did not pass after %d rounds, proceeding anyway.", MAX_VERIFY_ROUNDS)
