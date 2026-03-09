@@ -4,97 +4,64 @@ import json
 
 from .models import ImprovementTask
 
+_PLAN_ONLY = """You are in PLAN-ONLY mode. Read files freely but do NOT edit, create, delete, or run any commands. Return only the JSON below."""
+
+_JSON_SHAPE = json.dumps({
+    "tasks": [{
+        "title": "Short title",
+        "description": "What and why.",
+        "steps": ["Concrete step referencing file:function"],
+        "files": ["path/to/file.py"],
+        "expected_change": "One-sentence outcome.",
+        "manual_actions": [],
+    }]
+}, ensure_ascii=False, indent=2)
+
+_TEST_REQUIREMENTS = """
+Write tests for every change: happy paths (expected behavior) and unhappy paths (invalid inputs, missing config, error conditions, edge cases). Use the project's existing test framework.
+"""
+
+_TEST_REVIEW = """
+Check test coverage: are both happy and unhappy paths tested? List specific missing test cases in findings if not.
+"""
+
+
+# -- Planner prompts --
 
 def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
-    example = {
-        "tasks": [
-            {
-                "title": "Short improvement title",
-                "description": "Why this matters and exactly what should change.",
-                "steps": [
-                    "Step 1: Do X in file A",
-                    "Step 2: Do Y in file B",
-                    "Step 3: Update tests to cover the change",
-                ],
-                "files": ["path/to/file.py"],
-                "expected_change": "One-sentence expected outcome.",
-                "manual_actions": [],
-            }
-        ]
-    }
-    json_shape = json.dumps(example, ensure_ascii=False, indent=2)
-
-    read_only_rule = """
-CRITICAL: You are operating in PLAN-ONLY mode — simulating Claude's plan permission mode.
-This means you must behave exactly as if --permission-mode plan were active:
-- You may READ any files to understand the codebase.
-- You must NOT create, edit, delete, or modify any files.
-- You must NOT run git commands, tests, linters, or any commands that change state.
-- You must NOT propose a "plan for review" — execute your analysis NOW and return the result.
-- Your ONLY output should be the JSON task list specified below. No prose, no explanations, no preamble."""
-
     if focus:
-        return f"""
-You are the planner agent in Recipro, a multi-agent code-improvement loop.
-{read_only_rule}
+        return focused_scan_prompt(max_improvements=max_improvements, focus=focus)
+    return general_scan_prompt(max_improvements=max_improvements)
 
-The user has given you a specific directive. Read it carefully, understand the full intent, and produce up to {max_improvements} concrete tasks that a builder agent should execute to fulfill it.
+
+def focused_scan_prompt(*, max_improvements: int, focus: str) -> str:
+    return f"""
+You are Recipro's planner. {_PLAN_ONLY}
 
 User directive:
 {focus}
 
-Inspect the repository in the current working directory. Break the directive down into actionable improvement tasks. Each task should be specific enough for another agent to implement without further clarification.
+Read the relevant source files, then break this into up to {max_improvements} concrete tasks. Each step must reference specific files and functions.
 
-The "steps" field is the most important part — it is the implementation plan that a builder agent will follow step by step. Each step should be concrete and actionable (e.g. "Add auth dependency to endpoint X in file Y", not "Add authentication"). Read the relevant source files to produce precise steps.
-
-Return strict JSON only, matching this shape:
-{json_shape}
+Return strict JSON:
+{_JSON_SHAPE}
 """.strip()
 
+
+def general_scan_prompt(*, max_improvements: int) -> str:
     return f"""
-You are the planner agent in Recipro, a multi-agent code-improvement loop.
-{read_only_rule}
+You are Recipro's planner. {_PLAN_ONLY}
 
-Inspect the repository in the current working directory and return up to {max_improvements} safe, high-impact improvements.
+Scan the repo for up to {max_improvements} high-impact improvements. Prioritize: bugs, correctness gaps, security issues, maintainability.
 
-Prioritize:
-- bugs
-- correctness gaps
-- maintainability
-- observability
-- security hardening
-- small performance wins
+Constraints: no architecture rewrites, no dependency upgrades, no migrations, no API changes.
 
-Hard constraints:
-- no architecture rewrites
-- no dependency upgrades
-- no migrations
-- no API changes
-- prefer tasks that another agent can complete locally without outside systems
-- touch as many files as needed to do the job correctly
-
-The "steps" field is the most important part — it is the implementation plan that a builder agent will follow step by step. Each step should be concrete and actionable (e.g. "Add bounds check before array access in function X", not "Fix unsafe indexing"). Read the relevant source files to produce precise steps.
-
-Return strict JSON only, matching this shape:
-{json_shape}
+Each step must reference specific files and functions. Return strict JSON:
+{_JSON_SHAPE}
 """.strip()
 
 
-_TEST_REQUIREMENTS = """
-Testing requirements:
-- Write tests for EVERY change you make. Place them in the project's existing test directory/structure.
-- Cover happy paths: verify the new behavior works as intended.
-- Cover unhappy paths: think about what could go wrong — invalid inputs, missing config, auth failures, edge cases, race conditions — and write tests for those too.
-- If the project has no existing test infrastructure, set one up (e.g. pytest for Python, jest for JS/TS).
-"""
-
-_TEST_REVIEW = """
-Also check test coverage:
-- Are there tests for every changed behavior (both happy and unhappy paths)?
-- Are edge cases tested (invalid inputs, missing config, auth failures, error conditions)?
-- If tests are missing or insufficient, list specific test cases that should be added in your findings.
-"""
-
+# -- Builder prompts --
 
 def implement_prompt(
     task: ImprovementTask,
@@ -103,163 +70,122 @@ def implement_prompt(
     add_tests: bool = True,
 ) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
-    steps_block = "\n".join(f"{i}. {s}" for i, s in enumerate(task.steps, 1)) if task.steps else "- No specific steps provided, use your judgment."
-    files_block = "\n".join(f"- {item}" for item in task.files) if task.files else "- Unknown"
+    steps_block = "\n".join(f"{i}. {s}" for i, s in enumerate(task.steps, 1)) if task.steps else "- Use your judgment."
+    files_block = ", ".join(task.files) if task.files else "unknown"
+    test_block = _TEST_REQUIREMENTS if add_tests else ""
     return f"""
-You are the builder agent in Recipro.
+Implement this improvement in the current repo.
 
-Implement the following safe improvement in the current repository.
-
-Title:
-{task.title}
-
-Description:
+Task: {task.title}
 {task.description}
 
-Implementation steps (follow in order):
+Steps:
 {steps_block}
 
-Likely files:
-{files_block}
+Files: {files_block}
 
-Expected change:
-{task.expected_change or "Not specified."}
-
-Feedback to address this round:
+Feedback to address:
 {feedback_block}
 
-Hard constraints:
-- keep the patch safe and correct
-- touch as many files as needed to do the job properly
-- do not change public APIs unless the task explicitly requires it
-- do not upgrade dependencies
-- do not run git commands (branching and committing is handled externally)
-- if you run tests, keep them as small and relevant as possible
-{_TEST_REQUIREMENTS if add_tests else ""}
-
-After editing the repository, return strict JSON only:
+Constraints: no public API changes, no dependency upgrades, no git commands.
+{test_block}
+Return strict JSON:
 {{
-  "summary": "short summary of the implementation",
+  "summary": "what you did",
   "changed_files": ["path/to/file.py"],
-  "tests_ran": ["pytest tests/test_example.py"],
+  "tests_ran": ["pytest tests/test_x.py"],
   "manual_actions": []
 }}
-""".strip()
-
-
-def review_prompt(focus: str | None = None, add_tests: bool = True) -> str:
-    if focus:
-        return f"""
-You are the critic agent in Recipro.
-
-The user gave the following directive:
-{focus}
-
-A builder agent has made changes to the repository to fulfill this directive.
-Run `git diff` to see exactly what was changed, then review the changes.
-
-Your job is to ensure the user's intent has been fully and correctly implemented. Check:
-- Does the implementation actually address what the user asked for?
-- Are there any parts of the directive that were missed or misunderstood?
-- Are there correctness bugs, regressions, or unsafe behavior in the changes?
-
-Ignore style-only nitpicks. Focus on whether the directive was fulfilled correctly.
-
-{_TEST_REVIEW if add_tests else ""}
-
-Return strict JSON only:
-{{
-  "status": "pass" or "fail",
-  "summary": "short explanation",
-  "findings": ["concrete fix 1", "concrete fix 2"],
-  "manual_actions": []
-}}
-
-Use "pass" only when the directive is fully and correctly implemented.
-""".strip()
-
-    return f"""
-You are the critic agent in Recipro.
-
-A builder agent has made changes to the repository.
-Run `git diff` to see exactly what was changed, then review the changes.
-
-Focus only on material issues:
-- correctness bugs
-- regressions
-- unsafe behavior
-- missing edge-case handling
-- validation gaps
-
-Ignore style-only nitpicks.
-{_TEST_REVIEW if add_tests else ""}
-Return strict JSON only:
-{{
-  "status": "pass" or "fail",
-  "summary": "short explanation",
-  "findings": ["concrete fix 1", "concrete fix 2"],
-  "manual_actions": []
-}}
-
-Use "pass" only when there are no material findings left to fix before commit.
 """.strip()
 
 
 def verify_prompt(task: ImprovementTask, feedback: list[str]) -> str:
     feedback_block = "\n".join(f"- {item}" for item in feedback) if feedback else "- None"
     return f"""
-You are the builder agent in Recipro. The implementation has been reviewed and approved.
-Before shipping, you must verify the code passes all checks.
+The implementation for "{task.title}" is reviewed and approved. Verify it passes all checks.
 
-Task: {task.title}
-
-Previous test/lint failures to fix:
+Previous failures to fix:
 {feedback_block}
 
-Steps:
-1. If there are failures listed above, fix them first.
-2. Run linting and formatting checks if the project has them configured (e.g. ruff, eslint, black, prettier). Fix any issues.
-3. Run the full test suite if the project has one (e.g. pytest, jest). Fix any failures.
-
-Return strict JSON only:
+Run lint and tests. Fix any issues. Return strict JSON:
 {{
   "status": "pass" or "fail",
   "summary": "what you did",
-  "failures": ["description of failure 1", "description of failure 2"]
+  "failures": ["failure description"]
 }}
-
-Use "pass" only when all lint checks and tests pass (or the project has none configured).
 """.strip()
 
 
-def push_pr_prompt(task: ImprovementTask, summary: str, changed_files: list[str], *, auto_merge: bool = False) -> str:
-    files_block = "\n".join(f"- {f}" for f in changed_files) if changed_files else "- (check git status)"
-    merge_step = "\n5. Merge the PR using `gh pr merge --squash --delete-branch`." if auto_merge else ""
+def push_pr_prompt(
+    task: ImprovementTask,
+    summary: str,
+    changed_files: list[str],
+    *,
+    auto_merge: bool = False,
+) -> str:
+    files_block = ", ".join(changed_files) if changed_files else "(check git status)"
+    merge_step = "\n5. Merge the PR with `gh pr merge --squash --delete-branch`." if auto_merge else ""
     return f"""
-You are the builder agent in Recipro. The implementation has been reviewed, tested, and approved.
-Now ship it as a pull request.
+Ship this as a pull request.
 
 Task: {task.title}
-Description: {task.description}
-Implementation summary: {summary}
+Summary: {summary}
+Changed files: {files_block}
 
-Changed files:
-{files_block}
+Steps:
+1. Create a descriptive branch.
+2. Stage and commit all changes.
+3. Push to origin.
+4. Create PR with `gh pr create`.{merge_step}
 
-Steps to follow in order:
-1. Create a new git branch with a clear, descriptive name.
-2. Stage and commit all changes with a good commit message.
-3. Push the branch to origin.
-4. Create a pull request using `gh pr create` with a clear title and description.{merge_step}
+Do NOT run tests or lint — already passed.
 
-Do NOT run tests or lint — they have already passed.
-
-Return strict JSON only:
+Return strict JSON:
 {{
-  "pr_url": "the full URL of the created PR",
-  "branch_name": "the branch name you used",
-  "commit_message": "the commit message you used",
+  "pr_url": "full PR URL",
+  "branch_name": "branch name",
+  "commit_message": "commit message",
   "merged": {"true" if auto_merge else "false"}
 }}
 """.strip()
 
+
+# -- Critic prompts --
+
+def review_prompt(focus: str | None = None, add_tests: bool = True) -> str:
+    if focus:
+        return focused_review_prompt(focus=focus, add_tests=add_tests)
+    return general_review_prompt(add_tests=add_tests)
+
+
+def focused_review_prompt(*, focus: str, add_tests: bool = True) -> str:
+    test_block = _TEST_REVIEW if add_tests else ""
+    return f"""
+Review the changes against this directive:
+{focus}
+
+Run `git diff` to see changes. Check: does the implementation fully address the directive? Any bugs, regressions, or missed requirements?
+{test_block}
+Ignore style nitpicks. Return strict JSON:
+{{
+  "status": "pass" or "fail",
+  "summary": "short explanation",
+  "findings": ["concrete fix needed"],
+  "manual_actions": []
+}}
+""".strip()
+
+
+def general_review_prompt(*, add_tests: bool = True) -> str:
+    test_block = _TEST_REVIEW if add_tests else ""
+    return f"""
+Review the changes. Run `git diff`. Focus on: correctness bugs, regressions, unsafe behavior, missing edge cases.
+{test_block}
+Ignore style nitpicks. Return strict JSON:
+{{
+  "status": "pass" or "fail",
+  "summary": "short explanation",
+  "findings": ["concrete fix needed"],
+  "manual_actions": []
+}}
+""".strip()
