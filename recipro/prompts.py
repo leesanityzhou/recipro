@@ -4,7 +4,12 @@ import json
 
 from .models import ImprovementTask
 
-_PLAN_ONLY = """You are in PLAN-ONLY mode. Read files freely but do NOT edit, create, delete, or run any commands. Return only the JSON below."""
+_PLAN_ONLY = """You are operating in PLAN-ONLY mode — behave exactly as if --permission-mode plan were active:
+- READ any files to understand the codebase thoroughly.
+- Do NOT create, edit, delete, or modify any files.
+- Do NOT run git commands, tests, linters, or any state-changing commands.
+- Do NOT propose a "plan for review" — execute your analysis NOW.
+- Your ONLY output is the JSON specified below. No prose, no preamble."""
 
 _JSON_SHAPE = json.dumps({
     "tasks": [{
@@ -36,12 +41,20 @@ def scan_prompt(*, max_improvements: int, focus: str | None) -> str:
 
 def focused_scan_prompt(*, max_improvements: int, focus: str) -> str:
     return f"""
-You are Recipro's planner. {_PLAN_ONLY}
+You are Recipro's planner.
+
+{_PLAN_ONLY}
 
 User directive:
 {focus}
 
-Read the relevant source files, then break this into up to {max_improvements} concrete tasks. Each step must reference specific files and functions.
+Read ALL relevant source files before planning. Understand the existing patterns, dependencies, and call sites. Then produce up to {max_improvements} concrete tasks.
+
+The "steps" field is critical — a builder agent will follow these steps verbatim. Each step MUST:
+- Reference specific files and functions by name
+- Describe exactly what to change, not just what to achieve
+- Example: "Add HMAC validation in routes.py:webhook_handler before processing the request body"
+- NOT: "Add authentication to the webhook endpoint"
 
 Return strict JSON:
 {_JSON_SHAPE}
@@ -50,13 +63,22 @@ Return strict JSON:
 
 def general_scan_prompt(*, max_improvements: int) -> str:
     return f"""
-You are Recipro's planner. {_PLAN_ONLY}
+You are Recipro's planner.
 
-Scan the repo for up to {max_improvements} high-impact improvements. Prioritize: bugs, correctness gaps, security issues, maintainability.
+{_PLAN_ONLY}
 
+Scan the entire repo thoroughly. Read source files, configs, and tests. Then identify up to {max_improvements} high-impact improvements.
+
+Prioritize: bugs, correctness gaps, security issues, maintainability.
 Constraints: no architecture rewrites, no dependency upgrades, no migrations, no API changes.
 
-Each step must reference specific files and functions. Return strict JSON:
+The "steps" field is critical — a builder agent will follow these steps verbatim. Each step MUST:
+- Reference specific files and functions by name
+- Describe exactly what to change, not just what to achieve
+- Example: "Add bounds check in parser.py:parse_input before accessing tokens[index]"
+- NOT: "Fix unsafe array indexing"
+
+Return strict JSON:
 {_JSON_SHAPE}
 """.strip()
 
