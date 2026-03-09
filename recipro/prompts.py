@@ -79,7 +79,10 @@ Feedback to address:
 {feedback_block}
 
 Constraints: no public API changes, no dependency upgrades, no git commands.
+Do NOT over-engineer. Make the minimum changes needed to solve the task. No unnecessary abstractions, no premature generalization, no refactoring beyond what is required.
 {test_block}
+Testing scope: only run tests directly related to the files you changed. Do NOT run the full test suite — that happens in a separate verification step.
+
 Return strict JSON:
 {{
   "summary": "what you did",
@@ -98,7 +101,7 @@ The implementation for "{task.title}" is reviewed and approved. Verify it passes
 Previous failures to fix:
 {feedback_block}
 
-Run lint and tests. Fix any issues. Return strict JSON:
+Run the full lint and test suite. Fix any issues caused by the implementation. Return strict JSON:
 {{
   "status": "pass" or "fail",
   "summary": "what you did",
@@ -155,7 +158,10 @@ def focused_review_prompt(*, focus: str, add_tests: bool = True) -> str:
 Review the changes against this directive:
 {focus}
 
-Run `git diff` to see changes. Check: does the implementation fully address the directive? Any bugs, regressions, or missed requirements?
+Run `git diff` to see changes. Check: does the implementation fully address the directive? Any bugs or regressions in the changed code?
+
+SCOPE CONSTRAINT: Only report issues that are directly within the scope of the directive above. Do NOT expand scope to unrelated code, pre-existing issues, or improvements beyond what was asked. If the changes correctly address the directive, pass the review.
+Do NOT demand over-engineering. Accept minimal, correct solutions. Do not request unnecessary abstractions, extra configurability, or refactoring that goes beyond the task.
 {test_block}
 Ignore style nitpicks. Return strict JSON:
 {{
@@ -170,7 +176,10 @@ Ignore style nitpicks. Return strict JSON:
 def general_review_prompt(*, add_tests: bool = True) -> str:
     test_block = _TEST_REVIEW if add_tests else ""
     return f"""
-Review the changes. Run `git diff`. Focus on: correctness bugs, regressions, unsafe behavior, missing edge cases.
+Review the changes. Run `git diff`. Focus on: correctness bugs, regressions, unsafe behavior in the changed code.
+
+SCOPE CONSTRAINT: Only report issues directly caused by or within the changed code. Do NOT flag pre-existing issues, unrelated code, or improvements beyond the scope of the current task. If the changes are correct and don't introduce bugs, pass the review.
+Do NOT demand over-engineering. Accept minimal, correct solutions. Do not request unnecessary abstractions, extra configurability, or refactoring that goes beyond the task.
 {test_block}
 Ignore style nitpicks. Return strict JSON:
 {{

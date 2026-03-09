@@ -62,6 +62,12 @@ class TestImplementPrompt:
         prompt = implement_prompt(task, feedback=[])
         assert "judgment" in prompt.lower() or "your judgment" in prompt.lower()
 
+    def test_only_related_tests(self):
+        task = _make_task()
+        prompt = implement_prompt(task, feedback=[])
+        assert "only run tests" in prompt.lower()
+        assert "directly related" in prompt.lower()
+
 
 class TestReviewPrompt:
     def test_with_focus(self):
@@ -90,6 +96,16 @@ class TestReviewPrompt:
         prompt = review_prompt(focus=None, add_tests=False)
         assert "test coverage" not in prompt.lower()
 
+    def test_scope_constraint_with_focus(self):
+        prompt = review_prompt(focus="Fix bug")
+        assert "scope" in prompt.lower()
+        assert "do not expand" in prompt.lower() or "do not flag" in prompt.lower()
+
+    def test_scope_constraint_without_focus(self):
+        prompt = review_prompt(focus=None)
+        assert "scope" in prompt.lower()
+        assert "pre-existing" in prompt.lower()
+
 
 class TestVerifyPrompt:
     def test_includes_task(self):
@@ -101,3 +117,8 @@ class TestVerifyPrompt:
         task = _make_task()
         prompt = verify_prompt(task, feedback=["test_auth failed"])
         assert "test_auth failed" in prompt
+
+    def test_runs_full_suite(self):
+        task = _make_task()
+        prompt = verify_prompt(task, feedback=[])
+        assert "full" in prompt.lower()
