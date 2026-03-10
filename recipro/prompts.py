@@ -162,6 +162,8 @@ Run `git diff` to see changes. Check: does the implementation fully address the 
 
 SCOPE CONSTRAINT: Only report issues that are directly within the scope of the directive above. Do NOT expand scope to unrelated code, pre-existing issues, or improvements beyond what was asked. If the changes correctly address the directive, pass the review.
 Do NOT demand over-engineering. Accept minimal, correct solutions. Do not request unnecessary abstractions, extra configurability, or refactoring that goes beyond the task.
+SEVERITY THRESHOLD: Only fail for bugs that WILL cause incorrect behavior in normal usage. Do NOT fail for: theoretical race conditions that are unlikely in practice, missing edge-case handling (e.g. rare header formats, jitter, sub-second timing), or "hardening" improvements. If the code works correctly for the common case, pass it.
+NO SCOPE CREEP: Do not introduce new findings that were not present in previous rounds. If your previous findings were addressed, pass the review. Do not raise the bar by discovering additional theoretical concerns in code that was added to fix your earlier findings.
 {test_block}
 Ignore style nitpicks. Return strict JSON:
 {{
@@ -180,6 +182,8 @@ Review the changes. Run `git diff`. Focus on: correctness bugs, regressions, uns
 
 SCOPE CONSTRAINT: Only report issues directly caused by or within the changed code. Do NOT flag pre-existing issues, unrelated code, or improvements beyond the scope of the current task. If the changes are correct and don't introduce bugs, pass the review.
 Do NOT demand over-engineering. Accept minimal, correct solutions. Do not request unnecessary abstractions, extra configurability, or refactoring that goes beyond the task.
+SEVERITY THRESHOLD: Only fail for bugs that WILL cause incorrect behavior in normal usage. Do NOT fail for: theoretical race conditions that are unlikely in practice, missing edge-case handling (e.g. rare header formats, jitter, sub-second timing), or "hardening" improvements. If the code works correctly for the common case, pass it.
+NO SCOPE CREEP: Do not introduce new findings that were not present in previous rounds. If your previous findings were addressed, pass the review. Do not raise the bar by discovering additional theoretical concerns in code that was added to fix your earlier findings.
 {test_block}
 Ignore style nitpicks. Return strict JSON:
 {{

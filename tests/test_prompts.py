@@ -107,6 +107,24 @@ class TestReviewPrompt:
         assert "scope" in prompt.lower()
         assert "pre-existing" in prompt.lower()
 
+    def test_severity_threshold_with_focus(self):
+        prompt = review_prompt(focus="Fix bug")
+        assert "severity threshold" in prompt.lower()
+        assert "will cause" in prompt.lower()
+
+    def test_severity_threshold_without_focus(self):
+        prompt = review_prompt(focus=None)
+        assert "severity threshold" in prompt.lower()
+        assert "will cause" in prompt.lower()
+
+    def test_no_scope_creep_with_focus(self):
+        prompt = review_prompt(focus="Fix bug")
+        assert "scope creep" in prompt.lower()
+
+    def test_no_scope_creep_without_focus(self):
+        prompt = review_prompt(focus=None)
+        assert "scope creep" in prompt.lower()
+
 
 class TestVerifyPrompt:
     def test_includes_task(self):
